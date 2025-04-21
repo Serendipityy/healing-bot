@@ -108,22 +108,42 @@
 
 # ========================= V2 =========================== #
 # ingestor.py
+import ast
+import logging
 from pathlib import Path
 from typing import List
 
 import pandas as pd
-from langchain_core.documents import Document
+from google import genai
+from google.genai import types
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
+from langchain_core.documents import Document
 from langchain_core.vectorstores import VectorStore
 from langchain_experimental.text_splitter import SemanticChunker
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_qdrant import Qdrant
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from ragbase.config import Config
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+def safe_parse_answers(x):
+    try:
+        if isinstance(x, str):
+            # Giữ lại \n nhưng escape đúng để literal_eval hiểu được
+            escaped = x.encode('unicode_escape').decode('utf-8')
+            return ast.literal_eval(escaped)
+        return x
+    except Exception as e:
+        print(f"[!] Lỗi khi parse: {x} -> {e}")
+        return []
+
+# Huggingface Embeddings model
 class Ingestor:
     def __init__(self):
-        self.embeddings = FastEmbedEmbeddings(model_name=Config.Model.EMBEDDINGS)
+        # self.embeddings = FastEmbedEmbeddings(model_name=Config.Model.EMBEDDINGS)
+        self.embeddings = HuggingFaceEmbeddings(model_name=Config.Model.EMBEDDINGS)
         self.semantic_splitter = SemanticChunker(
             self.embeddings, breakpoint_threshold_type="interquartile"
         )
@@ -139,28 +159,42 @@ class Ingestor:
             if not excel_path.exists():
                 raise FileNotFoundError(f"Excel file not found at {excel_path}")
             
+            logging.info(f"Reading Excel file: {excel_path}")
             df = pd.read_excel(excel_path)
+            
+            df['answers'] = df['answers'].apply(safe_parse_answers)
             
             # Create documents
             documents = []
-            for _, row in df.iterrows():
-                content = f"Question: {row['question']}\nAnswer: {row['best_answer']}"
-                doc = Document(
-                    page_content=content,
-                    metadata={"labels": row['labels'], "source": str(excel_path)}
-                )
-                documents.append(doc)
-            
+            batch_size = 1000  # Process 1000 rows at a time
+            for i in range(0, len(df), batch_size):
+                batch = df.iloc[i:i+batch_size]
+                for _, row in batch.iterrows():
+                    # Format answers
+                    answers_list = row['answers']
+                    formatted_answers = "\n- " + "\n- ".join(answers_list) if answers_list else "No answers available"
+
+                    content = f"""Question: {row['question']}\nAnswers:{formatted_answers}\nBest answer: {row['best_answer']}"""
+
+                    doc = Document(
+                        page_content=content,
+                        metadata={"labels": row['labels'], "source": str(excel_path)}
+                    )
+                    documents.append(doc)
+                logging.info(f"Processed {len(documents)} documents")
             # Split documents
+            logging.info("Splitting documents...")
             split_docs = self.recursive_splitter.split_documents(
                 self.semantic_splitter.create_documents([doc.page_content for doc in documents])
             )
             
             # Add metadata back
+            logging.info("Adding metadata back...")
             for split_doc in split_docs:
                 split_doc.metadata = documents[0].metadata
             
             # Create vector store
+            logging.info("Creating vector store...")
             return Qdrant.from_documents(
                 documents=split_docs,
                 embedding=self.embeddings,
