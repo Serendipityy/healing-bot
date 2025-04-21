@@ -1,5 +1,7 @@
 from langchain_community.chat_models import ChatOllama
-from langchain_community.document_compressors.flashrank_rerank import FlashrankRerank
+from langchain_community.document_compressors.flashrank_rerank import \
+    FlashrankRerank
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 from langchain_core.language_models import BaseLanguageModel
 from langchain_groq import ChatGroq
@@ -23,8 +25,10 @@ def create_llm() -> BaseLanguageModel:
         )
 
 
-def create_embeddings() -> FastEmbedEmbeddings:
-    return FastEmbedEmbeddings(model_name=Config.Model.EMBEDDINGS)
+# def create_embeddings() -> FastEmbedEmbeddings:
+#     return FastEmbedEmbeddings(model_name=Config.Model.EMBEDDINGS)
+def create_embeddings() -> HuggingFaceEmbeddings:
+    return HuggingFaceEmbeddings(model_name=Config.Model.EMBEDDINGS)
 
 
 def create_reranker() -> FlashrankRerank:
