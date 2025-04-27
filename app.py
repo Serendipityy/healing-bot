@@ -255,15 +255,20 @@
 # app.py
 import asyncio
 import random
+import time
 
 import streamlit as st
 from dotenv import load_dotenv
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors.chain_filter import \
+    LLMChainFilter
 
 from ragbase.chain import ask_question, create_chain
 from ragbase.config import Config
 from ragbase.ingestor import Ingestor
-from ragbase.model import create_llm
-from ragbase.retriever import create_retriever
+from ragbase.model import create_llm, create_reranker
+from ragbase.retriever import create_hybrid_retriever
+from ragbase.utils import load_documents_from_excel
 
 load_dotenv()
 
@@ -283,9 +288,27 @@ LOADING_MESSAGES = [
 @st.cache_resource(show_spinner=False)
 def build_qa_chain():
     # Load prebuilt vector store
+    start = time.time()
+    documents = load_documents_from_excel(excel_path=Config.Path.EXCEL_FILE)
     vector_store = Ingestor().ingest()  # No excel_path, loads existing vector store
+    end = time.time()
+    print(f"Thời gian embedding: {end - start} giây")
+    
     llm = create_llm()
-    retriever = create_retriever(llm, vector_store=vector_store)
+    # Apply Hybrid Retriever
+    retriever = create_hybrid_retriever(llm, documents, vector_store)
+    
+    # Apply reranker (Contextual Compression Retriever)
+    if Config.Retriever.USE_RERANKER:
+        retriever = ContextualCompressionRetriever(
+            base_compressor=create_reranker(), base_retriever=retriever
+        )
+
+    if Config.Retriever.USE_CHAIN_FILTER:
+        retriever = ContextualCompressionRetriever(
+            base_compressor=LLMChainFilter.from_llm(llm), base_retriever=retriever
+        )
+
     return create_chain(llm, retriever)
 
 async def ask_chain(question: str, chain):
