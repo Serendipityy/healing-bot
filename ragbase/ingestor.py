@@ -145,7 +145,9 @@ class Ingestor:
         # self.embeddings = FastEmbedEmbeddings(model_name=Config.Model.EMBEDDINGS)
         self.embeddings = HuggingFaceEmbeddings(model_name=Config.Model.EMBEDDINGS)
         self.semantic_splitter = SemanticChunker(
-            self.embeddings, breakpoint_threshold_type="interquartile"
+            self.embeddings,
+            breakpoint_threshold_type="percentile",
+            breakpoint_threshold_amount=0.95,  
         )
         self.recursive_splitter = RecursiveCharacterTextSplitter(
             chunk_size=2048,
@@ -153,35 +155,8 @@ class Ingestor:
             add_start_index=True,
         )
 
-    def ingest(self, excel_path: Path = None) -> VectorStore:
-        if excel_path:
-            # Read and process Excel file
-            if not excel_path.exists():
-                raise FileNotFoundError(f"Excel file not found at {excel_path}")
-            
-            logging.info(f"Reading Excel file: {excel_path}")
-            df = pd.read_excel(excel_path)
-            
-            df['answers'] = df['answers'].apply(safe_parse_answers)
-            
-            # Create documents
-            documents = []
-            batch_size = 1000  # Process 1000 rows at a time
-            for i in range(0, len(df), batch_size):
-                batch = df.iloc[i:i+batch_size]
-                for _, row in batch.iterrows():
-                    # Format answers
-                    answers_list = row['answers']
-                    formatted_answers = "\n- " + "\n- ".join(answers_list) if answers_list else "No answers available"
-
-                    content = f"""Question: {row['question']}\nAnswers:{formatted_answers}\nBest answer: {row['best_answer']}"""
-
-                    doc = Document(
-                        page_content=content,
-                        metadata={"labels": row['labels'], "source": str(excel_path)}
-                    )
-                    documents.append(doc)
-                logging.info(f"Processed {len(documents)} documents")
+    def ingest(self, documents: list[Document] = None) -> VectorStore:
+        if documents:
             # Split documents
             logging.info("Splitting documents...")
             split_docs = self.recursive_splitter.split_documents(
