@@ -29,5 +29,5 @@ class Config:
         USE_CHAIN_FILTER = False
 
     DEBUG = False
-    CONVERSATION_MESSAGES_LIMIT = 6
+    CONVERSATION_MESSAGES_LIMIT = 10
 

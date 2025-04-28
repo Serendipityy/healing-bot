@@ -273,16 +273,7 @@ from ragbase.utils import load_documents_from_excel
 load_dotenv()
 
 LOADING_MESSAGES = [
-    "Calculating your answer through multiverse...",
-    "Adjusting quantum entanglement...",
-    "Summoning star wisdom... almost there!",
-    "Consulting Schrödinger's cat...",
-    "Warping spacetime for your response...",
-    "Balancing neutron star equations...",
-    "Analyzing dark matter... please wait...",
-    "Engaging hyperdrive... en route!",
-    "Gathering photons from a galaxy...",
-    "Beaming data from Andromeda... stand by!",
+    "Please wait...",
 ]
 
 @st.cache_resource(show_spinner=False)
@@ -314,7 +305,7 @@ def build_qa_chain():
 async def ask_chain(question: str, chain):
     full_response = ""
     assistant = st.chat_message(
-        "assistant", avatar=str(Config.Path.IMAGES_DIR / "assistant-avatar.png")
+        "assistant", avatar=str(Config.Path.IMAGES_DIR / "assistant-avatar.jfif")
     )
     with assistant:
         message_placeholder = st.empty()
@@ -336,9 +327,9 @@ def show_message_history():
     for message in st.session_state.messages:
         role = message["role"]
         avatar_path = (
-            Config.Path.IMAGES_DIR / "assistant-avatar.png"
+            Config.Path.IMAGES_DIR / "assistant-avatar.jfif"
             if role == "assistant"
-            else Config.Path.IMAGES_DIR / "user-avatar.png"
+            else Config.Path.IMAGES_DIR / "user-avatar.jfif"
         )
         with st.chat_message(role, avatar=str(avatar_path)):
             st.markdown(message["content"])
@@ -348,12 +339,12 @@ def show_chat_input(chain):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message(
             "user",
-            avatar=str(Config.Path.IMAGES_DIR / "user-avatar.png"),
+            avatar=str(Config.Path.IMAGES_DIR / "user-avatar.jfif"),
         ):
             st.markdown(prompt)
         asyncio.run(ask_chain(prompt, chain))
 
-st.set_page_config(page_title="Bạn Tâm Sự", page_icon="🤗")
+st.set_page_config(page_title="Healing Bot", page_icon="🤗")
 
 st.html(
     """
@@ -370,7 +361,7 @@ if "messages" not in st.session_state:
     st.session_state.messages = [
         {
             "role": "assistant",
-            "content": "Xin chào! Mình là bạn tâm sự ảo, sẵn sàng lắng nghe và chia sẻ cùng bạn. Bạn đang nghĩ gì vậy?",
+            "content": "Xin chào! Mình ở đây sẵn sàng lắng nghe và chia sẻ cùng bạn. Bạn đang nghĩ gì vậy?",
         }
     ]
 
@@ -382,8 +373,8 @@ if Config.CONVERSATION_MESSAGES_LIMIT > 0 and Config.CONVERSATION_MESSAGES_LIMIT
     )
     st.stop()
 
-st.header("Bạn Tâm Sự")
-st.subheader("Chia sẻ và chữa lành cùng mình nhé!")
+# st.header("Bạn Tâm Sự")
+# st.subheader("Chia sẻ và chữa lành cùng mình nhé!")
 
 # Load the QA chain
 with st.spinner("Khởi động bạn tâm sự..."):

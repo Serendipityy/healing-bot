@@ -46,7 +46,7 @@ def load_documents_from_excel(excel_path: Path = None) -> List[Document]:
                     metadata={"labels": row['labels'], "source": str(excel_path)}
                 )
                 documents.append(doc)
-                logging.info(f"Processed {len(documents)} documents")
+                # logging.info(f"Processed {len(documents)} documents")
         return documents
     else:
         raise ValueError("Excel path is required for loading documents.")
