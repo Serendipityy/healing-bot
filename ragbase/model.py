@@ -25,8 +25,7 @@ def create_llm() -> BaseLanguageModel:
         )
 
 
-# def create_embeddings() -> FastEmbedEmbeddings:
-#     return FastEmbedEmbeddings(model_name=Config.Model.EMBEDDINGS)
+
 def create_embeddings() -> HuggingFaceEmbeddings:
     return HuggingFaceEmbeddings(model_name=Config.Model.EMBEDDINGS)
 
