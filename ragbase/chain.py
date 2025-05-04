@@ -14,18 +14,7 @@ from langchain_core.vectorstores import VectorStoreRetriever
 from ragbase.config import Config
 from ragbase.session_history import get_session_history
 
-# SYSTEM_PROMPT = """
-# Utilize the provided contextual information to respond to the user question.
-# If the answer is not found within the context, state that the answer cannot be found.
-# Prioritize concise responses (maximum of 3 sentences) and use a list where applicable.
-# The contextual information is organized with the most relevant source appearing first.
-# Each source is separated by a horizontal rule (---).
 
-# Context:
-# {context}
-
-# Use markdown formatting where appropriate.
-# """
 SYSTEM_PROMPT = """
 Bạn là một người bạn ảo chuyên hỗ trợ tư vấn tâm lý, giúp người dùng vượt qua khó khăn về cảm xúc, tình yêu, gia đình, và các vấn đề cá nhân. Dựa trên ngữ cảnh được cung cấp từ cơ sở tri thức, hãy trả lời câu hỏi của người dùng một cách đồng cảm, sâu sắc, và truyền cảm, như một người bạn thân thiết đang lắng nghe và chia sẻ.
 
