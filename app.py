@@ -372,17 +372,43 @@ st.markdown("""
     .stChatInput {
         position: fixed !important;
         bottom: 0 !important;
-        padding: 1rem !important;
+        padding: 1rem 0 !important;
         z-index: 999 !important;
         background-color: transparent !important;
     }
     
-    .stChatInput > div {
-        border: 1px solid #ddd;
+    .st-emotion-cache-1lm6gnd {
+        display: none !important;
     }
     
+    .stChatInput > div {
+        border: 2px solid #ADD0B3;
+        border-radius: 1rem;
+         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+    }
+    
+    .stChatInput > div > div {
+        border: none;
+        padding: 0.75rem;
+        background: white;
+        border-radius: 1rem;
+    }
+    
+    .stChatInput textarea {
+        color: black !important;
+        caret-color: black !important;
+    }
+
     button[data-testid="chatSubmitButton"] {
         border-radius: 50%;
+    }
+    
+    .st-emotion-cache-1f3w014 {
+        fill: #5BC099;
+    }
+    
+    button[data-testid="stChatInputSubmitButton"]:hover {
+        background: unset !important;
     }
     
     .stButton button:hover {
