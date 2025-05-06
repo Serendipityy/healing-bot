@@ -18,7 +18,7 @@ class Config:
         EMBEDDINGS = "intfloat/multilingual-e5-base"
         # EMBEDDINGS = "keepitreal/vietnamese-sbert"
         RERANKER = "ms-marco-MiniLM-L-12-v2"
-        LOCAL_LLM = "deepseek-r1:7b"
+        LOCAL_LLM = "qwen2.5:latest"
         REMOTE_LLM = "llama-3.1-70b-versatile"
         TEMPERATURE = 0.0
         MAX_TOKENS = 8000
