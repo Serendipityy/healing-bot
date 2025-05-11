@@ -1,24 +1,25 @@
 import asyncio
+import base64
+import datetime
+import os
 import random
 import time
-import datetime
 import uuid
 
+import nest_asyncio
 import streamlit as st
 from dotenv import load_dotenv
 from langchain.retrievers import ContextualCompressionRetriever
-from langchain.retrievers.document_compressors.chain_filter import LLMChainFilter
+from langchain.retrievers.document_compressors.chain_filter import \
+    LLMChainFilter
 
+from chat_storage import ChatStorage
 from ragbase.chain import ask_question, create_chain
 from ragbase.config import Config
 from ragbase.ingestor import Ingestor
 from ragbase.model import create_llm, create_reranker
 from ragbase.retriever import create_hybrid_retriever
 from ragbase.utils import load_documents_from_excel
-from chat_storage import ChatStorage
-
-import os
-import base64
 
 load_dotenv()
 
@@ -170,7 +171,14 @@ def show_chat_input(chain):
             avatar=str(Config.Path.IMAGES_DIR / "user-avatar.jfif"),
         ):
             st.markdown(prompt)
-        asyncio.run(ask_chain(prompt, chain))
+        nest_asyncio.apply()
+
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        loop.run_until_complete(ask_chain(prompt, chain))
 
 def load_chat_history(chat_id):
     """Tải một cuộc trò chuyện từ bộ nhớ lâu dài"""
