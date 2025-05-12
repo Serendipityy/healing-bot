@@ -19,7 +19,7 @@ class Config:
         # EMBEDDINGS = "keepitreal/vietnamese-sbert"
         RERANKER = "ms-marco-MiniLM-L-12-v2"
         LOCAL_LLM = "qwen2.5:latest"
-        REMOTE_LLM = "llama-3.1-70b-versatile"
+        REMOTE_LLM = "deepseek-r1-distill-llama-70b"
         TEMPERATURE = 0.0
         MAX_TOKENS = 8000
         USE_LOCAL = False

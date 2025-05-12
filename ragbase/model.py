@@ -19,18 +19,18 @@ def create_llm() -> BaseLanguageModel:
             max_tokens=Config.Model.MAX_TOKENS,
         )
     else:
-        return ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
-            temperature=0,
-            max_tokens=None,
-            timeout=None,
-            max_retries=2,
-        )
-        # return ChatGroq(
-        #     temperature=Config.Model.TEMPERATURE,
-        #     model_name=Config.Model.REMOTE_LLM,
-        #     max_tokens=Config.Model.MAX_TOKENS,
+        # return ChatGoogleGenerativeAI(
+        #     model="gemini-2.0-flash",
+        #     temperature=0,
+        #     max_tokens=None,
+        #     timeout=None,
+        #     max_retries=2,
         # )
+        return ChatGroq(
+            temperature=Config.Model.TEMPERATURE,
+            model_name=Config.Model.REMOTE_LLM,
+            max_tokens=Config.Model.MAX_TOKENS,
+        )
 
 
 

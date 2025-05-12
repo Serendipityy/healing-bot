@@ -3,6 +3,7 @@ import base64
 import datetime
 import os
 import random
+import re
 import time
 import uuid
 
@@ -68,12 +69,20 @@ async def ask_chain(question: str, chain):
         message_placeholder = st.empty()
         message_placeholder.status(random.choice(LOADING_MESSAGES), state="running")
         documents = []
+
+        # Thu thập toàn bộ câu trả lời từ `ask_question`
+        raw_response = ""
         async for event in ask_question(chain, question, session_id="session-id-42"):
             if isinstance(event, str):
-                full_response += event
-                message_placeholder.markdown(full_response)
+                raw_response += event
             if isinstance(event, list):
                 documents.extend(event)
+
+        # Loại bỏ các thẻ <think>...</think> bằng regex
+        full_response = re.sub(r"<think>.*?</think>", "", raw_response, flags=re.DOTALL)
+
+        # Hiển thị câu trả lời đã xử lý lên UI
+        message_placeholder.markdown(full_response)
         # for i, doc in enumerate(documents):
         #     with st.expander(f"Source #{i+1}"):
         #         st.write(doc.page_content)
