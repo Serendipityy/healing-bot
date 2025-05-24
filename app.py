@@ -60,6 +60,38 @@ def build_qa_chain():
 
     return create_chain(llm, retriever)
 
+# Utility function to run async functions in Streamlit
+@st.cache_resource
+def get_async_loop():
+    try:
+        # Check if there's a running loop first
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop, create a new one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        return loop
+    except Exception as e:
+        # Fall back to a new loop if any issues
+        st.warning(f"Event loop error (handled): {e}")
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop
+
+def run_async_in_streamlit(async_func, *args, **kwargs):
+    # Create a future in the current event loop
+    loop = get_async_loop()
+    try:
+        return loop.run_until_complete(async_func(*args, **kwargs))
+    except RuntimeError as e:
+        if "This event loop is already running" in str(e):
+            # We're in a running event loop already, create a new task
+            st.warning("Already in an event loop, creating a task instead")
+            return asyncio.create_task(async_func(*args, **kwargs))
+        else:
+            raise
+
 async def ask_chain(question: str, chain):
     full_response = ""
     assistant = st.chat_message(
@@ -180,14 +212,26 @@ def show_chat_input(chain):
             avatar=str(Config.Path.IMAGES_DIR / "user-avatar.jfif"),
         ):
             st.markdown(prompt)
-        nest_asyncio.apply()
-
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        loop.run_until_complete(ask_chain(prompt, chain))
+        
+        try:
+            # Try using our improved async handler
+            run_async_in_streamlit(ask_chain, prompt, chain)
+        except RuntimeError as e:
+            st.error(f"Runtime error (handled): {e}")
+            # Fall back to a synchronous approach if needed
+            full_response = "Xin lỗi, mình đang gặp vấn đề kỹ thuật. Bạn có thể thử lại không?"
+            with st.chat_message(
+                "assistant", avatar=str(Config.Path.IMAGES_DIR / "assistant-avatar.jfif")
+            ):
+                st.markdown(full_response)
+            
+            # Save the message to history
+            current_time = datetime.datetime.now().strftime("%H:%M")
+            st.session_state.messages.append({
+                "role": "assistant", 
+                "content": full_response,
+                "timestamp": current_time
+            })
 
 def load_chat_history(chat_id):
     """Tải một cuộc trò chuyện từ bộ nhớ lâu dài"""
@@ -197,7 +241,7 @@ def load_chat_history(chat_id):
     if chat_data and "messages" in chat_data:
         st.session_state.messages = chat_data["messages"]
         st.session_state.current_chat_id = chat_id
-        st.experimental_rerun()
+        st.rerun()
     else:
         st.error("Không thể tải cuộc trò chuyện này")
 
@@ -216,7 +260,7 @@ def create_new_chat():
     chat_id = chat_storage.generate_chat_id()
     st.session_state.current_chat_id = chat_id
     
-    st.experimental_rerun()
+    st.rerun()
 
 def delete_chat(chat_id):
     """Xóa một cuộc trò chuyện"""
@@ -226,7 +270,7 @@ def delete_chat(chat_id):
     if st.session_state.get("current_chat_id") == chat_id:
         create_new_chat()
     else:
-        st.experimental_rerun()
+        st.rerun()
 
 
 def get_base64_of_image(image_path):
@@ -337,13 +381,8 @@ st.markdown("""
         # background-color: white !important;
     }
     
-    div[data-testid="stAppViewBlockContainer"] {
+    div[data-testid="stMainBlockContainer"] {
         padding: 0 4rem !important;
-    }
-    
-    .main .block-container {
-        # padding: 0 5rem;
-        # margin-top: 5rem;
     }
     
     /* avatar */
@@ -386,36 +425,14 @@ st.markdown("""
         
     } 
     
-    .stChatInput {
-        position: fixed !important;
-        bottom: 0 !important;
-        padding: 1rem 0 !important;
-        z-index: 999 !important;
-        background-color: transparent !important;
-    }
-    
+   
     .st-emotion-cache-1lm6gnd {
         display: none !important;
     }
-    
-    .stChatInput > div {
-        border: 2px solid #ADD0B3;
-        border-radius: 1rem;
-         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+    .st-emotion-cache-hu32sh {
+        background: unset !important;
     }
     
-    .stChatInput > div > div {
-        border: none;
-        padding: 0.75rem;
-        background: white;
-        border-radius: 1rem;
-    }
-    
-    .stChatInput textarea {
-        color: black !important;
-        caret-color: black !important;
-    }
-
     button[data-testid="chatSubmitButton"] {
         border-radius: 50%;
     }
@@ -430,6 +447,17 @@ st.markdown("""
     
     .stButton button:hover {
         background-color: #f0f7ff !important;
+    }
+    
+    .stChatInput > div,
+    .st-b1 {
+        background: white !important;
+        # padding: 2rem;
+    }
+    
+    textarea {
+        color: black !important;
+        caret-color: black !important;
     }
     
     .stButton button:first-of-type {

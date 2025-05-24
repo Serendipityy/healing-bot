@@ -1,3 +1,12 @@
+import warnings
+
+# Handle PyTorch import issues with a try/except
+try:
+    # Disable PyTorch warnings about custom classes 
+    warnings.filterwarnings("ignore", category=UserWarning, module="torch")
+except ImportError:
+    pass
+
 from langchain_community.chat_models import ChatOllama
 from langchain_community.document_compressors.flashrank_rerank import \
     FlashrankRerank
@@ -6,7 +15,7 @@ from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 from langchain_core.language_models import BaseLanguageModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
-
+from langchain_google_genai import ChatGoogleGenerativeAI
 from ragbase.config import Config
 
 
@@ -19,18 +28,17 @@ def create_llm() -> BaseLanguageModel:
             max_tokens=Config.Model.MAX_TOKENS,
         )
     else:
-        # return ChatGoogleGenerativeAI(
-        #     model="gemini-2.0-flash",
-        #     temperature=0,
-        #     max_tokens=None,
-        #     timeout=None,
-        #     max_retries=2,
+         return ChatGoogleGenerativeAI(
+        model="gemini-2.0-flash", 
+        google_api_key="AIzaSyBCsW-qkQeVCWdgDefOR2oQkVScbfTGpSM",
+        temperature=0.4,
+        max_output_tokens=Config.Model.MAX_TOKENS,
+    )
+        # return ChatGroq(
+        #     temperature=Config.Model.TEMPERATURE,
+        #     model_name=Config.Model.REMOTE_LLM,
+        #     max_tokens=Config.Model.MAX_TOKENS,
         # )
-        return ChatGroq(
-            temperature=Config.Model.TEMPERATURE,
-            model_name=Config.Model.REMOTE_LLM,
-            max_tokens=Config.Model.MAX_TOKENS,
-        )
 
 
 
