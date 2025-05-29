@@ -1,5 +1,6 @@
 import ast
 import logging
+import os
 from pathlib import Path
 from typing import List
 
@@ -42,33 +43,65 @@ class Ingestor:
             chunk_overlap=128,
             add_start_index=True,
         )
-
-    def ingest(self, documents: list[Document] = None) -> VectorStore:
+    def ingest(self, documents: list[Document] = None, chunk_size: int = 1000, resume: bool = True) -> None:
+        """
+        Ingest documents into the vector store, processing them in chunks.
+        
+        Args:
+            documents (list[Document]): List of documents to ingest.
+            chunk_size (int): Number of documents to process in each chunk.
+            resume (bool): Whether to resume from the last processed chunk.
+        """
         if documents:
-            # Split documents
-            logging.info("Splitting documents...")
-            split_docs = self.recursive_splitter.split_documents(
-                self.semantic_splitter.create_documents([doc.page_content for doc in documents])
-            )
+            # Determine the number of chunks
+            total_chunks = (len(documents) + chunk_size - 1) // chunk_size
+            processed_chunks_file = "processed_chunks.log"
+
+            # Load processed chunks if resuming
+            processed_chunks = set()
+            if resume and os.path.exists(processed_chunks_file):
+                with open(processed_chunks_file, "r") as f:
+                    processed_chunks = set(map(int, f.read().splitlines()))
             
-            # Add metadata back
-            logging.info("Adding metadata back...")
-            for split_doc in split_docs:
-                split_doc.metadata = documents[0].metadata
-            
-            # Create vector store
-            logging.info("Creating vector store...")
-            return Qdrant.from_documents(
-                documents=split_docs,
-                embedding=self.embeddings,
-                path=Config.Path.DATABASE_DIR,
-                collection_name=Config.Database.DOCUMENTS_COLLECTION,
-            )
+            # Process documents in chunks
+            for chunk_index in range(total_chunks):
+                if chunk_index in processed_chunks:
+                    logging.info(f"Skipping already processed chunk {chunk_index + 1}/{total_chunks}")
+                    continue
+                
+                # Get the current chunk
+                start = chunk_index * chunk_size
+                end = min(start + chunk_size, len(documents))
+                chunk = documents[start:end]
+                logging.info(f"Processing chunk {chunk_index + 1}/{total_chunks} ({len(chunk)} documents)...")
+
+                # Split documents
+                split_docs = self.recursive_splitter.split_documents(
+                    self.semantic_splitter.create_documents([doc.page_content for doc in chunk])
+                )
+
+                # Add metadata back
+                for split_doc, original_doc in zip(split_docs, chunk):
+                    split_doc.metadata = original_doc.metadata
+
+                # Ingest the chunk into the vector store
+                logging.info(f"Ingesting chunk {chunk_index + 1}/{total_chunks} into the vector store...")
+                Qdrant.from_documents(
+                    documents=split_docs,
+                    embedding=self.embeddings,
+                    path=Config.Path.DATABASE_DIR,
+                    collection_name=Config.Database.DOCUMENTS_COLLECTION,
+                    force_recreate = True
+                )
+
+                # Mark the chunk as processed
+                with open(processed_chunks_file, "a") as f:
+                    f.write(f"{chunk_index}\n")
         else:
             # Load existing vector store
+            logging.info("Loading existing vector store...")
             return Qdrant.from_existing_collection(
                 embedding=self.embeddings,
                 collection_name=Config.Database.DOCUMENTS_COLLECTION,
                 path=Config.Path.DATABASE_DIR,
-            )
-
+        )

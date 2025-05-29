@@ -7,6 +7,7 @@ import re
 import time
 import uuid
 
+import grpc.experimental.aio as grpc_aio
 import nest_asyncio
 import streamlit as st
 from dotenv import load_dotenv
@@ -22,6 +23,7 @@ from ragbase.model import create_llm, create_reranker
 from ragbase.retriever import create_hybrid_retriever
 from ragbase.utils import load_documents_from_excel
 
+# grpc_aio.init_grpc_aio()
 load_dotenv()
 
 LOADING_MESSAGES = [
@@ -39,7 +41,7 @@ def build_qa_chain():
     # Load prebuilt vector store
     start = time.time()
     documents = load_documents_from_excel(excel_path=Config.Path.EXCEL_FILE)
-    vector_store = Ingestor().ingest()  # No excel_path, loads existing vector store
+    vector_store = Ingestor().ingest(documents=documents, chunk_size=1000, resume=True)  # No excel_path, loads existing vector store
     end = time.time()
     print(f"Thời gian embedding: {end - start} giây")
     
@@ -180,14 +182,14 @@ def show_chat_input(chain):
             avatar=str(Config.Path.IMAGES_DIR / "user-avatar.jfif"),
         ):
             st.markdown(prompt)
-        nest_asyncio.apply()
+        asyncio.run(ask_chain(prompt, chain))
+        # nest_asyncio.apply()
 
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        loop.run_until_complete(ask_chain(prompt, chain))
+        # loop = asyncio.get_event_loop()
+        # if loop.is_closed():
+        #     loop = asyncio.new_event_loop()
+        #     asyncio.set_event_loop(loop)
+        # loop.run_until_complete(ask_chain(prompt, chain))
 
 def load_chat_history(chat_id):
     """Tải một cuộc trò chuyện từ bộ nhớ lâu dài"""
