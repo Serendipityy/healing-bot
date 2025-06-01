@@ -41,7 +41,7 @@ def build_qa_chain():
     # Load prebuilt vector store
     start = time.time()
     documents = load_documents_from_excel(excel_path=Config.Path.EXCEL_FILE)
-    vector_store = Ingestor().ingest(documents=documents, chunk_size=1000, resume=True)  # No excel_path, loads existing vector store
+    vector_store = Ingestor().ingest()  # No excel_path, loads existing vector store
     end = time.time()
     print(f"Thời gian embedding: {end - start} giây")
     

@@ -15,7 +15,7 @@ class Config:
         DOCUMENTS_COLLECTION = "documents"
 
     class Model:
-        EMBEDDINGS = "intfloat/multilingual-e5-base"
+        EMBEDDINGS = "intfloat/multilingual-e5-large-instruct"
         # EMBEDDINGS = "keepitreal/vietnamese-sbert"
         RERANKER = "ms-marco-MiniLM-L-12-v2"
         LOCAL_LLM = "qwen2.5:latest"
