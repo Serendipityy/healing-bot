@@ -37,6 +37,11 @@ Run the Ollama server
 ollama serve
 ```
 
+Start Qdrant server:
+```sh
+docker run -d -p 6333:6333 -v "{path to docs-db}:/qdrant/storage" --name qdrant qdrant/qdrant:v1.10.1
+```
+
 Start RagBase:
 
 ```sh

@@ -51,3 +51,30 @@ def load_documents_from_excel(excel_path: Path = None) -> List[Document]:
     else:
         raise ValueError("Excel path is required for loading documents.")
         return []
+    
+def load_summary_documents_from_excel(excel_path: Path = None) -> List[Document]:
+    if excel_path:
+        if not excel_path.exists():
+            raise FileNotFoundError(f"Excel file not found at {excel_path}")
+        
+        logging.info(f"Reading Excel file: {excel_path}")
+        df = pd.read_excel(excel_path)
+
+        if 'summary' not in df.columns or 'labels' not in df.columns:
+            raise ValueError("Excel file must contain 'summary' and 'labels' columns.")
+        
+        documents = []
+        batch_size = 1000
+        for i in range(0, len(df), batch_size):
+            batch = df.iloc[i:i + batch_size]
+            for _, row in batch.iterrows():
+                summary_text = row['summary']
+                doc = Document(
+                    page_content=str(summary_text).strip(),
+                    metadata={"labels": row['labels'], "source": str(excel_path)}
+                )
+                documents.append(doc)
+
+        return documents
+    else:
+        raise ValueError("Excel path is required for loading documents.")

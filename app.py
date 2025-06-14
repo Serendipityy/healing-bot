@@ -14,14 +14,18 @@ from dotenv import load_dotenv
 from langchain.retrievers import ContextualCompressionRetriever
 from langchain.retrievers.document_compressors.chain_filter import \
     LLMChainFilter
+from langchain_qdrant import Qdrant, QdrantVectorStore
+from qdrant_client import QdrantClient
 
 from chat_storage import ChatStorage
 from ragbase.chain import ask_question, create_chain
 from ragbase.config import Config
+from ragbase.hyde import QueryTransformationHyDE
 from ragbase.ingestor import Ingestor
-from ragbase.model import create_llm, create_reranker
+from ragbase.model import create_embeddings, create_llm, create_reranker
 from ragbase.retriever import create_hybrid_retriever
-from ragbase.utils import load_documents_from_excel
+from ragbase.utils import (load_documents_from_excel,
+                           load_summary_documents_from_excel)
 
 # grpc_aio.init_grpc_aio()
 load_dotenv()
@@ -30,37 +34,67 @@ LOADING_MESSAGES = [
     "Please wait...",
 ]
 
+client = QdrantClient(host="localhost", port=6333, timeout=300)
+
 # Initialize chat storage with SQLite
 @st.cache_resource(show_spinner=False)
 def get_chat_storage():
     db_path = "chat_history.db"
     return ChatStorage(db_file=db_path)
 
+
 @st.cache_resource(show_spinner=False)
 def build_qa_chain():
+    embedding_model = create_embeddings()
     # Load prebuilt vector store
     start = time.time()
     documents = load_documents_from_excel(excel_path=Config.Path.EXCEL_FILE)
-    vector_store = Ingestor().ingest()  # No excel_path, loads existing vector store
+    summary_documents = load_summary_documents_from_excel(excel_path=Config.Path.SUMMARY_EXCEL_FILE)
+    # vector_store = Ingestor().ingest()
+    # summary_vector_store = Ingestor().ingest_summary()
+    
+    # Load collection "documents"
+    vector_store = QdrantVectorStore(
+        client=client,
+        collection_name="documents",
+        embedding=embedding_model
+    )
+
+    # Load collection "summary"
+    summary_vector_store = QdrantVectorStore(
+        client=client,
+        collection_name="summary",
+        embedding=embedding_model
+    )
+    
+
     end = time.time()
     print(f"Thời gian embedding: {end - start} giây")
     
     llm = create_llm()
-    # Apply Hybrid Retriever
-    retriever = create_hybrid_retriever(llm, documents, vector_store)
-    
-    # Apply reranker (Contextual Compression Retriever)
+
+    # Hybrid retrievers
+    retriever_full = create_hybrid_retriever(llm, documents, vector_store)
+    retriever_summary = create_hybrid_retriever(llm, summary_documents, summary_vector_store)
+
+    # Apply reranker or chain filter if needed
     if Config.Retriever.USE_RERANKER:
-        retriever = ContextualCompressionRetriever(
-            base_compressor=create_reranker(), base_retriever=retriever
+        retriever_full = ContextualCompressionRetriever(
+            base_compressor=create_reranker(), base_retriever=retriever_full
+        )
+        retriever_summary = ContextualCompressionRetriever(
+            base_compressor=create_reranker(), base_retriever=retriever_summary
         )
 
     if Config.Retriever.USE_CHAIN_FILTER:
-        retriever = ContextualCompressionRetriever(
-            base_compressor=LLMChainFilter.from_llm(llm), base_retriever=retriever
+        retriever_full = ContextualCompressionRetriever(
+            base_compressor=LLMChainFilter.from_llm(llm), base_retriever=retriever_full
+        )
+        retriever_summary = ContextualCompressionRetriever(
+            base_compressor=LLMChainFilter.from_llm(llm), base_retriever=retriever_summary
         )
 
-    return create_chain(llm, retriever)
+    return create_chain(llm, retriever_full, retriever_summary)
 
 # Utility function to run async functions in Streamlit
 @st.cache_resource
@@ -103,10 +137,13 @@ async def ask_chain(question: str, chain):
         message_placeholder = st.empty()
         message_placeholder.status(random.choice(LOADING_MESSAGES), state="running")
         documents = []
-
+        
+        original_question = question
+        question_transformed = QueryTransformationHyDE().transform_query(original_question)
+        
         # Thu thập toàn bộ câu trả lời từ `ask_question`
         raw_response = ""
-        async for event in ask_question(chain, question, session_id="session-id-42"):
+        async for event in ask_question(chain, question_transformed, session_id="session-id-42"):
             if isinstance(event, str):
                 raw_response += event
             if isinstance(event, list):

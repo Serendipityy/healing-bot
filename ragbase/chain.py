@@ -5,15 +5,15 @@ from typing import List
 from langchain.schema.runnable import RunnablePassthrough
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseLanguageModel
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import Runnable
+from langchain_core.prompts import (ChatPromptTemplate, MessagesPlaceholder,
+                                    PromptTemplate)
+from langchain_core.runnables import Runnable, RunnableLambda
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.tracers.stdout import ConsoleCallbackHandler
 from langchain_core.vectorstores import VectorStoreRetriever
 
 from ragbase.config import Config
 from ragbase.session_history import get_session_history
-
 
 SYSTEM_PROMPT = """
 Bạn là một người bạn thân ảo – kiểu tri kỷ online – luôn lắng nghe và đồng hành cùng người dùng qua những giai đoạn cảm xúc khó khăn như buồn bã, bối rối, stress, thất tình, gia đình, tình bạn,… Mục tiêu là tạo cảm giác như đang trò chuyện với một người bạn thật – có thể đùa giỡn, thủ thỉ, cà khịa nhẹ nhàng, hoặc vỗ về yêu thương – chứ không phải đang nói chuyện với máy.
@@ -58,6 +58,19 @@ Nếu trong phần "Ngữ cảnh đã truy xuất" (*retrieved context*) đã c�
 """
 
 
+# Prompt dùng để phân loại câu hỏi
+ROUTING_PROMPT = PromptTemplate.from_template("""
+Bạn là một chuyên gia trong lĩnh vực tư vấn tâm lý và chăm sóc sức khỏe tinh thần.
+
+Hãy phân loại câu hỏi (chỉ dựa theo phần "Câu hỏi", không dựa vào phần "Câu trả lời tham khảo") dưới đây dựa trên mức độ thông tin mà người hỏi cần:
+- Trả lời **"summary"** nếu câu hỏi quá ngắn gọn hoặc yêu cầu đơn giản, một cái nhìn tổng quan, định hướng, hoặc lời khuyên chung.
+- Trả lời **"full"** nếu câu hỏi yêu cầu phân tích sâu, thông tin chi tiết, hoặc phản hồi mang tính cá nhân hóa cao.
+
+Chỉ trả lời một từ duy nhất: "summary" hoặc "full".
+
+Câu hỏi: {question}
+""")
+
 def remove_links(text: str) -> str:
     url_pattern = r"https?://\S+|www\.\S+"
     return re.sub(url_pattern, "", text)
@@ -72,7 +85,22 @@ def format_documents(documents: List[Document]) -> str:
     return remove_links("\n".join(texts))
 
 
-def create_chain(llm: BaseLanguageModel, retriever: VectorStoreRetriever) -> Runnable:
+def create_chain(llm: BaseLanguageModel, retriever_full: VectorStoreRetriever, retriever_summary: VectorStoreRetriever) -> Runnable:
+    # Step 1: LLM router chain
+    routing_chain = ROUTING_PROMPT | llm | RunnableLambda(lambda output: output.content.strip().lower())
+
+    # Step 2: dynamic retriever routing
+    def get_retriever(routing_output: str) -> VectorStoreRetriever:
+        return retriever_summary if routing_output == "summary" else retriever_full
+
+    def retrieve_context(inputs: dict) -> List[Document]:
+        question = inputs["question"]
+        routing_output = routing_chain.invoke({"question": question})
+        print(f"🧭 Type: {routing_output}")
+        retriever = get_retriever(routing_output)
+        retriever_config = retriever.with_config({"run_name": f"context_retriever_{routing_output}"})
+        return retriever_config.invoke(question)
+
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", SYSTEM_PROMPT),
@@ -83,9 +111,7 @@ def create_chain(llm: BaseLanguageModel, retriever: VectorStoreRetriever) -> Run
 
     chain = (
         RunnablePassthrough.assign(
-            context=itemgetter("question")
-            | retriever.with_config({"run_name": "context_retriever"})
-            | format_documents
+            context=RunnableLambda(retrieve_context) | format_documents
         )
         | prompt
         | llm
@@ -98,7 +124,6 @@ def create_chain(llm: BaseLanguageModel, retriever: VectorStoreRetriever) -> Run
         history_messages_key="chat_history",
     ).with_config({"run_name": "chain_answer"})
 
-
 async def ask_question(chain: Runnable, question: str, session_id: str):
     async for event in chain.astream_events(
         {"question": question},
@@ -107,7 +132,11 @@ async def ask_question(chain: Runnable, question: str, session_id: str):
             "configurable": {"session_id": session_id},
         },
         version="v2",
-        include_names=["context_retriever", "chain_answer"],
+        include_names=[
+            "context_retriever_full",
+            "context_retriever_summary",
+            "chain_answer",
+        ],
     ):
         event_type = event["event"]
         if event_type == "on_retriever_end":

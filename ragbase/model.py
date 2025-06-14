@@ -15,7 +15,7 @@ from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 from langchain_core.language_models import BaseLanguageModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
-from langchain_google_genai import ChatGoogleGenerativeAI
+
 from ragbase.config import Config
 
 
@@ -30,7 +30,6 @@ def create_llm() -> BaseLanguageModel:
     else:
          return ChatGoogleGenerativeAI(
         model="gemini-2.0-flash", 
-        google_api_key="AIzaSyBCsW-qkQeVCWdgDefOR2oQkVScbfTGpSM",
         temperature=0.4,
         max_output_tokens=Config.Model.MAX_TOKENS,
     )
