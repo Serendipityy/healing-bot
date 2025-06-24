@@ -17,6 +17,7 @@ from qdrant_client import QdrantClient
 
 from ragbase.chain import create_chain
 from ragbase.config import Config
+from ragbase.hyde import QueryTransformationHyDE
 from ragbase.ingestor import Ingestor
 from ragbase.model import create_embeddings, create_reranker
 from ragbase.retriever import create_hybrid_retriever
@@ -26,18 +27,22 @@ from ragbase.utils import (load_documents_from_excel,
 # ========================== CẤU HÌNH GEMINI KEY =============================
 
 list_keys = [
-    "AIzaSyBSLdACUAR5srrD_yoolWKtIZlIk5JtMSo",
-    "AIzaSyB17vRD3BlCe0gzOCbvbrgwwC7zVTXlbZo",
-    "AIzaSyCVA6ctW4cXNUzwUqYkR6pWbBSdh19zwvA",
-    "AIzaSyCNLh5HhlIUovo8_de1RWg1jAx2Iq4Yo8g",
-    "AIzaSyD_d2NNsNxVhWLK_d2yjnEQuyTNUECi1Ns",
-    "AIzaSyCw371rlLG4FqlRan4C0rD280sqVga-zE4",
-    "AIzaSyBctBtlbRv4aJ5cvJRZNK_sfPiBY8-6KoY",
-    "AIzaSyAMKQvJs5hAup1JUNl3G29dt24m5mRLgiE",
-    "AIzaSyDaVCYIC-j6BoBe4VEWPRMWnR7hTu9puZo",
-    "AIzaSyBfmOEpr9mdfyEimLW1wQh9Ik4drMAdyF8",
-    "AIzaSyCZ6lZNrFesfPtSkixvmaH7b8TX-UMUVBg",
-    "AIzaSyDVjszXsue2Qs7rQf4-VNHhUt-1KZtQdx4",
+    "AIzaSyBhSDC69kLBqw21VdsYvBs74q98w4dHa7E",
+    # "AIzaSyDaVCYIC-j6BoBe4VEWPRMWnR7hTu9puZo",
+    # "AIzaSyBfmOEpr9mdfyEimLW1wQh9Ik4drMAdyF8",
+    # "AIzaSyCZ6lZNrFesfPtSkixvmaH7b8TX-UMUVBg",
+    # "AIzaSyDVjszXsue2Qs7rQf4-VNHhUt-1KZtQdx4",
+    # "AIzaSyDQMVfzyVcytu_4I32Hh6_xwVQA2G2nr30",
+    # "AIzaSyAtDL5ryd6oIUAKjp4cFnTgW21xPynp6YY",
+    # "AIzaSyDha2zavpRp2fkrpVz6Xopv6HppcyubX2Y",
+    # "AIzaSyBSLdACUAR5srrD_yoolWKtIZlIk5JtMSo",
+    # "AIzaSyB17vRD3BlCe0gzOCbvbrgwwC7zVTXlbZo",
+    # "AIzaSyCVA6ctW4cXNUzwUqYkR6pWbBSdh19zwvA",
+    # "AIzaSyCNLh5HhlIUovo8_de1RWg1jAx2Iq4Yo8g",
+    # "AIzaSyD_d2NNsNxVhWLK_d2yjnEQuyTNUECi1Ns",
+    # "AIzaSyCw371rlLG4FqlRan4C0rD280sqVga-zE4",
+    # "AIzaSyBctBtlbRv4aJ5cvJRZNK_sfPiBY8-6KoY",
+    # "AIzaSyAMKQvJs5hAup1JUNl3G29dt24m5mRLgiE",
 ]
 current_key_index = 0
 
@@ -141,7 +146,7 @@ def clean_response(raw_response):
     return re.sub(r"<think>.*?</think>", "", raw_response, flags=re.DOTALL)
 
 def generate_answers_by_chunks(test_dataset_path, output_dir):
-    chunk_size = 1
+    chunk_size = 50
     test_data = pd.read_excel(test_dataset_path)
     chunks = np.array_split(test_data, len(test_data) // chunk_size + 1)
 
@@ -149,34 +154,37 @@ def generate_answers_by_chunks(test_dataset_path, output_dir):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    for chunk_index in range(0, 1):
+    for chunk_index in range(5, 60):
         print(f"🟩 Processing chunk {chunk_index + 1}/{len(chunks)}...")
         chunk = chunks[chunk_index]
         results = []
 
         for i, row in chunk.iterrows():
-            question = row.get("question", "")
+            question = row.get("question_generated", "")
+            best_answer = row.get("best_answer_generated", "")
             if not question:
                 continue
 
             print("-------------------------------------")
             print(f"Processing question {i + 1 + chunk_index * chunk_size}: {question}")
-            max_retries = 20
+            max_retries = 1000
             retry_count = 0
             while retry_count < max_retries:
                 try:
+                    question_transformed = QueryTransformationHyDE().transform_query(question)
                     raw_content, context = loop.run_until_complete(
-                        ask_question(chain, question, session_id=f"session-{chunk_index}-{i}")
+                        ask_question(chain, question_transformed, session_id=f"session-{chunk_index}-{i}")
                     )
                     answer = clean_response(raw_content)
 
                     results.append({
                         "question": question,
                         "answer": answer,
-                        "context": "\n".join(context) if context else "No context available"
+                        "context": context if context else [],
+                        "best_answer": best_answer,
                     })
 
-                    time.sleep(15)
+                    time.sleep(0)
                     break  # Thành công
 
                 except Exception as e:
@@ -211,7 +219,7 @@ def generate_answers_by_chunks(test_dataset_path, output_dir):
     print("🎉 All chunks processed.")
 
 if __name__ == "__main__":
-    test_dataset_path = "./data/missing.xlsx"
-    output_dir = "./data/test_data"
+    test_dataset_path = "./data/generated_test_dataset_question_answers_best_answer_final.xlsx"
+    output_dir = "./data/test_data_context_answer"
     os.makedirs(output_dir, exist_ok=True)
     generate_answers_by_chunks(test_dataset_path, output_dir)
