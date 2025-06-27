@@ -128,8 +128,9 @@ def run_async_in_streamlit(async_func, *args, **kwargs):
         else:
             raise
 
+nest_asyncio.apply()
+
 async def ask_chain(question: str, chain):
-    full_response = ""
     assistant = st.chat_message(
         "assistant", avatar=str(Config.Path.IMAGES_DIR / "assistant-avatar.jfif")
     )
@@ -137,26 +138,41 @@ async def ask_chain(question: str, chain):
         message_placeholder = st.empty()
         message_placeholder.status(random.choice(LOADING_MESSAGES), state="running")
         documents = []
-        
+
         original_question = question
-        question_transformed = QueryTransformationHyDE().transform_query(original_question)
-        
-        # Thu thập toàn bộ câu trả lời từ `ask_question`
+
+        # Retrieve chat history for context
+        chat_storage = get_chat_storage()
+        chat_id = st.session_state.get("current_chat_id")
+        chat_history = []
+        if chat_id:
+            chat_data = chat_storage.get_chat_by_id(chat_id)
+            if chat_data:
+                chat_history = [msg["content"] for msg in chat_data.get("messages", []) if msg["role"] == "user"]
+
+        # Combine history with the current question
+        context_question = "\n".join(chat_history + [original_question])
+
+        question_transformed = QueryTransformationHyDE().transform_query(context_question)
+
+        # Collect responses from `ask_question`
         raw_response = ""
         async for event in ask_question(chain, question_transformed, session_id="session-id-42"):
             if isinstance(event, str):
                 raw_response += event
+                # Stream response to UI
+                message_placeholder.markdown(raw_response)
             if isinstance(event, list):
                 documents.extend(event)
 
-        # Loại bỏ các thẻ <think>...</think> bằng regex
+        # Remove <think> tags using regex
         full_response = re.sub(r"<think>.*?</think>", "", raw_response, flags=re.DOTALL)
 
-        # Hiển thị câu trả lời đã xử lý lên UI
+        # Display processed response on UI
         message_placeholder.markdown(full_response)
-        # for i, doc in enumerate(documents):
-        #     with st.expander(f"Source #{i+1}"):
-        #         st.write(doc.page_content)
+        for i, doc in enumerate(documents):
+            with st.expander(f"Source #{i+1}"):
+                st.write(doc.page_content)
 
     # Save the message to history
     current_time = datetime.datetime.now().strftime("%H:%M")
@@ -165,9 +181,8 @@ async def ask_chain(question: str, chain):
         "content": full_response,
         "timestamp": current_time
     })
-    
-    # Update and save the current conversation to history  
-    # only save if there has been an actual conversation
+
+    # Update and save the current conversation to history
     save_current_chat(is_real_conversation=True)
 
 def save_current_chat(is_real_conversation=False):
@@ -497,6 +512,7 @@ st.markdown("""
     textarea {
         color: black !important;
         caret-color: black !important;
+        background: white !important;
     }
     
     .stButton button:first-of-type {

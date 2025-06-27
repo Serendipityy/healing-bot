@@ -13,3 +13,6 @@ pypdfium2
 rank_bm25
 openpyxl
 sentence-transformers
+fastapi
+aiosqlite
+pydantic-settings

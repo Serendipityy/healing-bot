@@ -144,6 +144,27 @@ async def ask_question(chain: Runnable, question: str, session_id: str):
     ):
         event_type = event["event"]
         if event_type == "on_retriever_end":
-            yield event["data"]["output"]
+            # 🔍 DEBUG: Print retrieved documents
+            documents = event["data"]["output"]
+            print(f"\n{'='*80}")
+            print(f"📚 RETRIEVED DOCUMENTS DEBUG")
+            print(f"{'='*80}")
+            print(f"🔍 Question: {question[:100]}{'...' if len(question) > 100 else ''}")
+            print(f"📊 Number of documents retrieved: {len(documents) if documents else 0}")
+            
+            if documents:
+                for i, doc in enumerate(documents[:3], 1):  # Show first 3 docs
+                    print(f"\n📄 Document {i}:")
+                    print(f"   Content: {doc.page_content[:200]}{'...' if len(doc.page_content) > 200 else ''}")
+                    if hasattr(doc, 'metadata') and doc.metadata:
+                        print(f"   Metadata: {doc.metadata}")
+                        
+                if len(documents) > 3:
+                    print(f"\n... and {len(documents) - 3} more documents")
+            else:
+                print("❌ No documents retrieved!")
+            print(f"{'='*80}\n")
+            
+            yield documents
         if event_type == "on_chain_stream":
             yield event["data"]["chunk"].content

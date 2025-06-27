@@ -161,6 +161,41 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+# ===== PROJECT SPECIFIC IGNORES =====
+# System files
 .DS_Store
-docs-db
-tmp
+
+# Model and cache files (EXCLUDE THESE - they're large)
+*.pkl
+*.bin
+*.safetensors
+*.gguf
+*.model
+*.pt
+*.pth
+
+# Database files (EXCLUDE THESE - they're generated/large)
+*.db
+*.sqlite
+*.sqlite3
+docs-db/
+qdrant_db/
+chat_history.db
+
+# Cache directories (EXCLUDE THESE)
+*cache*/
+tmp*/
+.cache/
+
+# ===== KEEP THESE FILES (DO NOT EXCLUDE) =====
+# Excel files - KEEP THESE (they contain important data)
+# *.xlsx (commented out to KEEP Excel files)
+# *.xls (commented out to KEEP Excel files)
+
+# Image files - KEEP THESE (they're part of the UI/docs)
+# *.jpg (commented out to KEEP image files)
+# *.png (commented out to KEEP image files)
+# *.jpeg (commented out to KEEP image files)
+# *.gif (commented out to KEEP image files)
+# *.jfif (commented out to KEEP image files)
+# *.webp (commented out to KEEP image files)
