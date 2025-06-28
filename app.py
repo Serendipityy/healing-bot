@@ -145,9 +145,6 @@ async def ask_chain(question: str, chain):
         # Sử dụng conversation_id từ session state
         conversation_id = st.session_state.get("current_conversation_id", "default")
         
-        # Debug: In ra để kiểm tra session_id
-        print(f"🔍 Using session_id/conversation_id: {conversation_id}")
-        
         # Thu thập toàn bộ câu trả lời từ `ask_question`
         raw_response = ""
         async for event in ask_question(chain, question_transformed, session_id=conversation_id):
@@ -208,7 +205,6 @@ def show_chat_input(chain):
         
         # Lưu vào database và đồng bộ với chain history
         conversation_id = st.session_state.get("current_conversation_id", "default")
-        print(f"🔍 Saving user message with conversation_id: {conversation_id}")
         add_message_to_history(conversation_id, "user", prompt)
         
         # Cập nhật title nếu đây là tin nhắn đầu tiên của user
@@ -249,8 +245,7 @@ def load_conversation(conversation_id):
         st.session_state.messages = messages
         st.session_state.current_conversation_id = conversation_id
         
-        # Load lịch sử vào chain history và debug
-        print(f"🔄 Loading conversation history for: {conversation_id}")
+        # Load lịch sử vào chain history
         load_history_from_db(conversation_id)
         
         st.rerun()
@@ -505,8 +500,6 @@ if "messages" not in st.session_state:
         conversation_id = storage.create_conversation()
         st.session_state.current_conversation_id = conversation_id
         
-        print(f"🆕 Created new conversation: {conversation_id}")
-        
         current_time = datetime.datetime.now().strftime("%H:%M")
         initial_message = {
             "role": "assistant",
@@ -516,19 +509,15 @@ if "messages" not in st.session_state:
         
         st.session_state.messages = [initial_message]
         
-        # Lưu tin nhắn chào hỏi vào database và chain history
-        add_message_to_history(conversation_id, "assistant", initial_message["content"])
+        # Lưu tin nhắn chào hỏi vào database
+        storage.save_message(conversation_id, "assistant", initial_message["content"], current_time)
     else:
         # Load cuộc trò chuyện hiện tại
         conversation_id = st.session_state.current_conversation_id
-        print(f"🔄 Loading existing conversation: {conversation_id}")
-        
         storage = get_chat_storage()
         messages = storage.get_conversation_messages(conversation_id)
         if messages:
             st.session_state.messages = messages
-            # Load history vào chain
-            load_history_from_db(conversation_id)
         else:
             # Nếu không có tin nhắn, tạo tin nhắn chào hỏi
             current_time = datetime.datetime.now().strftime("%H:%M")
@@ -538,7 +527,7 @@ if "messages" not in st.session_state:
                 "timestamp": current_time
             }
             st.session_state.messages = [initial_message]
-            add_message_to_history(conversation_id, "assistant", initial_message["content"])
+            storage.save_message(conversation_id, "assistant", initial_message["content"], current_time)
     
 create_sidebar()
 
@@ -547,13 +536,6 @@ chat_container = st.container()
 with chat_container:
     with st.spinner("Starting..."):
         chain = build_qa_chain()
-    
-    # Đảm bảo chain history được load cho conversation hiện tại
-    if "current_conversation_id" in st.session_state:
-        conversation_id = st.session_state.current_conversation_id
-        print(f"🔄 Ensuring chain history is loaded for conversation: {conversation_id}")
-        # Force load history để đảm bảo chain có context đầy đủ
-        load_history_from_db(conversation_id)
     
     show_message_history()
 
