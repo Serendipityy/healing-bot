@@ -154,9 +154,9 @@ async def ask_chain(question: str, chain):
 
         # Hiển thị câu trả lời đã xử lý lên UI
         message_placeholder.markdown(full_response)
-        # for i, doc in enumerate(documents):
-        #     with st.expander(f"Source #{i+1}"):
-        #         st.write(doc.page_content)
+        for i, doc in enumerate(documents):
+            with st.expander(f"Source #{i+1}"):
+                st.write(doc.page_content)
 
     # Save the message to history
     current_time = datetime.datetime.now().strftime("%H:%M")
@@ -496,6 +496,7 @@ st.markdown("""
     
     textarea {
         color: black !important;
+        background: white !important;
         caret-color: black !important;
     }
     
