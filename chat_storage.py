@@ -2,180 +2,191 @@ import sqlite3
 import json
 import datetime
 import os
+import uuid
 from pathlib import Path
 
 class ChatStorage:
     def __init__(self, db_file="chat_history.db"):
         """
-        Khởi tạo lưu trữ chat với database SQLite
+        Khởi tạo lưu trữ chat với database SQLite - cấu trúc mới đơn giản
         """
         self.db_file = db_file
         self._init_db()
         
     def _init_db(self):
         """
-        Khởi tạo cấu trúc database nếu chưa tồn tại
+        Khởi tạo cấu trúc database đơn giản hơn
         """
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
         
-        # Create the main table to store conversation information
+        # Bảng chính lưu trữ cuộc trò chuyện
         cursor.execute('''
-        CREATE TABLE IF NOT EXISTS chats (
+        CREATE TABLE IF NOT EXISTS conversations (
             id TEXT PRIMARY KEY,
-            preview TEXT,
-            date TEXT,
-            is_real_conversation INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            title TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         ''')
         
-        # Create the table to store messages
+        # Bảng lưu trữ tin nhắn (bao gồm cả UI và chain history)
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            chat_id TEXT,
-            role TEXT,
-            content TEXT,
+            conversation_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
             timestamp TEXT,
-            FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
+            message_order INTEGER,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
         )
+        ''')
+        
+        # Index để tăng tốc truy vấn
+        cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_messages_conversation 
+        ON messages(conversation_id, message_order)
         ''')
         
         conn.commit()
         conn.close()
     
-    def save_chat(self, chat_data):
+    def create_conversation(self, title=None):
         """
-        Lưu một cuộc trò chuyện vào database
+        Tạo cuộc trò chuyện mới
         """
+        conv_id = str(uuid.uuid4())
+        if not title:
+            title = f"Cuộc trò chuyện {datetime.datetime.now().strftime('%d/%m %H:%M')}"
+        
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
         
-        chat_id = chat_data.get('id')
-        preview = chat_data.get('preview', 'Cuộc hội thoại mới')
-        date = chat_data.get('date', datetime.datetime.now().strftime("%d/%m/%Y"))
-        is_real_conversation = 1 if chat_data.get('is_real_conversation', False) else 0
-        
-        # Check if the chat already exists to perform UPDATE or INSERT
-        cursor.execute("SELECT id FROM chats WHERE id = ?", (chat_id,))
-        exists = cursor.fetchone()
-        
-        if exists:
-            # Update existing chat
-            cursor.execute(
-                "UPDATE chats SET preview = ?, date = ?, is_real_conversation = ? WHERE id = ?",
-                (preview, date, is_real_conversation, chat_id)
-            )
-        else:
-            # Add new chat
-            cursor.execute(
-                "INSERT INTO chats (id, preview, date, is_real_conversation) VALUES (?, ?, ?, ?)",
-                (chat_id, preview, date, is_real_conversation)
-            )
-        
-        # Delete old messages before adding new ones to avoid duplication
-        cursor.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))
-        
-        # Add the messages
-        messages = chat_data.get('messages', [])
-        for message in messages:
-            cursor.execute(
-                "INSERT INTO messages (chat_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-                (
-                    chat_id, 
-                    message.get('role', ''), 
-                    message.get('content', ''),
-                    message.get('timestamp', datetime.datetime.now().strftime("%H:%M"))
-                )
-            )
+        cursor.execute(
+            "INSERT INTO conversations (id, title) VALUES (?, ?)",
+            (conv_id, title)
+        )
         
         conn.commit()
         conn.close()
-        return chat_data
+        return conv_id
     
-    def get_all_chats(self):
+    def save_message(self, conversation_id, role, content, timestamp=None):
         """
-        Lấy tất cả lịch sử chat từ database
+        Lưu một tin nhắn vào cuộc trò chuyện
         """
+        if not timestamp:
+            timestamp = datetime.datetime.now().strftime("%H:%M")
+        
         conn = sqlite3.connect(self.db_file)
-        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
+        # Lấy thứ tự tin nhắn tiếp theo
         cursor.execute(
-            "SELECT id, preview, date, is_real_conversation FROM chats ORDER BY created_at DESC"
+            "SELECT COALESCE(MAX(message_order), 0) + 1 FROM messages WHERE conversation_id = ?",
+            (conversation_id,)
+        )
+        message_order = cursor.fetchone()[0]
+        
+        cursor.execute(
+            "INSERT INTO messages (conversation_id, role, content, timestamp, message_order) VALUES (?, ?, ?, ?, ?)",
+            (conversation_id, role, content, timestamp, message_order)
         )
         
-        chats = []
-        for row in cursor.fetchall():
-            chats.append({
-                'id': row['id'],
-                'preview': row['preview'],
-                'date': row['date'],
-                'is_real_conversation': bool(row['is_real_conversation'])
-            })
+        # Cập nhật thời gian updated_at cho cuộc trò chuyện
+        cursor.execute(
+            "UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (conversation_id,)
+        )
         
+        conn.commit()
         conn.close()
-        return chats
     
-    def get_chat_by_id(self, chat_id):
+    def get_conversation_messages(self, conversation_id):
         """
-        Lấy chi tiết một cuộc trò chuyện theo ID
+        Lấy tất cả tin nhắn của một cuộc trò chuyện theo thứ tự
         """
         conn = sqlite3.connect(self.db_file)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
         cursor.execute(
-            "SELECT id, preview, date, is_real_conversation FROM chats WHERE id = ?",
-            (chat_id,)
-        )
-        
-        chat_row = cursor.fetchone()
-        if not chat_row:
-            conn.close()
-            return None
-        
-        cursor.execute(
-            "SELECT role, content, timestamp FROM messages WHERE chat_id = ? ORDER BY id ASC",
-            (chat_id,)
+            "SELECT role, content, timestamp FROM messages WHERE conversation_id = ? ORDER BY message_order ASC",
+            (conversation_id,)
         )
         
         messages = []
-        for msg_row in cursor.fetchall():
+        for row in cursor.fetchall():
             messages.append({
-                'role': msg_row['role'],
-                'content': msg_row['content'],
-                'timestamp': msg_row['timestamp']
+                'role': row['role'],
+                'content': row['content'],
+                'timestamp': row['timestamp']
             })
         
-        chat_data = {
-            'id': chat_row['id'],
-            'preview': chat_row['preview'],
-            'date': chat_row['date'],
-            'is_real_conversation': bool(chat_row['is_real_conversation']),
-            'messages': messages
-        }
+        conn.close()
+        return messages
+    
+    def get_all_conversations(self):
+        """
+        Lấy danh sách tất cả cuộc trò chuyện
+        """
+        conn = sqlite3.connect(self.db_file)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "SELECT id, title, updated_at FROM conversations ORDER BY updated_at DESC"
+        )
+        
+        conversations = []
+        for row in cursor.fetchall():
+            conversations.append({
+                'id': row['id'],
+                'title': row['title'],
+                'updated_at': row['updated_at']
+            })
         
         conn.close()
-        return chat_data
+        return conversations
     
-    def delete_chat(self, chat_id):
+    def update_conversation_title(self, conversation_id, title):
         """
-        Xóa một cuộc trò chuyện
+        Cập nhật tiêu đề cuộc trò chuyện
         """
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
         
-        cursor.execute("DELETE FROM chats WHERE id = ?", (chat_id,))
+        cursor.execute(
+            "UPDATE conversations SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (title, conversation_id)
+        )
+        
+        conn.commit()
+        conn.close()
+    
+    def delete_conversation(self, conversation_id):
+        """
+        Xóa một cuộc trò chuyện và tất cả tin nhắn
+        """
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
         
         conn.commit()
         conn.close()
         return True
     
-    def generate_chat_id(self):
+    def clear_conversation_messages(self, conversation_id):
         """
-        Tạo ID duy nhất cho cuộc trò chuyện mới
+        Xóa tất cả tin nhắn trong cuộc trò chuyện nhưng giữ lại cuộc trò chuyện
         """
-        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-        return f"chat_{timestamp}"
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
+        
+        conn.commit()
+        conn.close()
+        return True

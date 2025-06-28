@@ -24,6 +24,7 @@ from ragbase.hyde import QueryTransformationHyDE
 from ragbase.ingestor import Ingestor
 from ragbase.model import create_embeddings, create_llm, create_reranker
 from ragbase.retriever import create_hybrid_retriever
+from ragbase.session_history import get_session_history, add_message_to_history, load_history_from_db
 from ragbase.utils import (load_documents_from_excel,
                            load_summary_documents_from_excel)
 
@@ -141,9 +142,12 @@ async def ask_chain(question: str, chain):
         original_question = question
         question_transformed = QueryTransformationHyDE().transform_query(original_question)
         
+        # Sử dụng conversation_id từ session state
+        conversation_id = st.session_state.get("current_conversation_id", "default")
+        
         # Thu thập toàn bộ câu trả lời từ `ask_question`
         raw_response = ""
-        async for event in ask_question(chain, question_transformed, session_id="session-id-42"):
+        async for event in ask_question(chain, question_transformed, session_id=conversation_id):
             if isinstance(event, str):
                 raw_response += event
             if isinstance(event, list):
@@ -158,7 +162,7 @@ async def ask_chain(question: str, chain):
             with st.expander(f"Source #{i+1}"):
                 st.write(doc.page_content)
 
-    # Save the message to history
+    # Lưu tin nhắn assistant vào cả UI và database
     current_time = datetime.datetime.now().strftime("%H:%M")
     st.session_state.messages.append({
         "role": "assistant", 
@@ -166,66 +170,9 @@ async def ask_chain(question: str, chain):
         "timestamp": current_time
     })
     
-    # Update and save the current conversation to history  
-    # only save if there has been an actual conversation
-    save_current_chat(is_real_conversation=True)
+    # Lưu vào database và đồng bộ với chain history
+    add_message_to_history(conversation_id, "assistant", full_response)
 
-def save_current_chat(is_real_conversation=False):
-    """
-    Lưu cuộc trò chuyện hiện tại vào bộ nhớ lâu dài
-    is_real_conversation: True nếu đã có tương tác thực từ người dùng
-    """
-    if "current_chat_id" not in st.session_state or not st.session_state.current_chat_id:
-        # Create a new conversation if none exists
-        chat_storage = get_chat_storage()
-        chat_id = chat_storage.generate_chat_id()
-        st.session_state.current_chat_id = chat_id
-        
-        # Find preview text from the first user message
-        preview_text = "Cuộc hội thoại mới"
-        for msg in st.session_state.messages:
-            if msg["role"] == "user":
-                preview_text = msg["content"][:30] + "..." if len(msg["content"]) > 30 else msg["content"]
-                break
-        
-        current_date = datetime.datetime.now().strftime("%d/%m/%Y")
-        chat_data = {
-            "id": chat_id,
-            "preview": preview_text,
-            "date": current_date,
-            "messages": st.session_state.messages,
-            "is_real_conversation": is_real_conversation
-        }
-    else:
-        # Update the current conversation
-        chat_storage = get_chat_storage()
-        chat_id = st.session_state.current_chat_id
-        chat_data = chat_storage.get_chat_by_id(chat_id)
-        if chat_data:
-            chat_data["messages"] = st.session_state.messages
-            if is_real_conversation:
-                chat_data["is_real_conversation"] = True
-        else:
-            preview_text = "Cuộc hội thoại mới"
-            for msg in st.session_state.messages:
-                if msg["role"] == "user":
-                    preview_text = msg["content"][:30] + "..." if len(msg["content"]) > 30 else msg["content"]
-                    break
-            
-            current_date = datetime.datetime.now().strftime("%d/%m/%Y")
-            chat_data = {
-                "id": chat_id,
-                "preview": preview_text,
-                "date": current_date,
-                "messages": st.session_state.messages,
-                "is_real_conversation": is_real_conversation
-            }
-    
-    # Only save to persistent storage if there has been user interaction  
-    # or if it has already been marked as a real conversation
-    if is_real_conversation or chat_data.get("is_real_conversation", False):
-        chat_storage = get_chat_storage()
-        chat_storage.save_chat(chat_data)
 
 def show_message_history():
     for message in st.session_state.messages:
@@ -241,16 +188,30 @@ def show_message_history():
 def show_chat_input(chain):
     if prompt := st.chat_input("Hãy chia sẻ tâm sự của bạn..."):
         current_time = datetime.datetime.now().strftime("%H:%M")
+        
+        # Lưu tin nhắn user vào UI
         st.session_state.messages.append({
             "role": "user", 
             "content": prompt,
             "timestamp": current_time
         })
+        
+        # Hiển thị tin nhắn user
         with st.chat_message(
             "user",
             avatar=str(Config.Path.IMAGES_DIR / "user-avatar.jfif"),
         ):
             st.markdown(prompt)
+        
+        # Lưu vào database và đồng bộ với chain history
+        conversation_id = st.session_state.get("current_conversation_id", "default")
+        add_message_to_history(conversation_id, "user", prompt)
+        
+        # Cập nhật title nếu đây là tin nhắn đầu tiên của user
+        if len([msg for msg in st.session_state.messages if msg["role"] == "user"]) == 1:
+            storage = get_chat_storage()
+            title = prompt[:50] + "..." if len(prompt) > 50 else prompt
+            storage.update_conversation_title(conversation_id, title)
         
         try:
             # Try using our improved async handler
@@ -271,43 +232,53 @@ def show_chat_input(chain):
                 "content": full_response,
                 "timestamp": current_time
             })
+            
+            # Lưu vào database
+            add_message_to_history(conversation_id, "assistant", full_response)
 
-def load_chat_history(chat_id):
-    """Tải một cuộc trò chuyện từ bộ nhớ lâu dài"""
-    chat_storage = get_chat_storage()
-    chat_data = chat_storage.get_chat_by_id(chat_id)
+def load_conversation(conversation_id):
+    """Tải một cuộc trò chuyện từ database"""
+    storage = get_chat_storage()
+    messages = storage.get_conversation_messages(conversation_id)
     
-    if chat_data and "messages" in chat_data:
-        st.session_state.messages = chat_data["messages"]
-        st.session_state.current_chat_id = chat_id
+    if messages:
+        st.session_state.messages = messages
+        st.session_state.current_conversation_id = conversation_id
+        
+        # Load lịch sử vào chain history
+        load_history_from_db(conversation_id)
+        
         st.rerun()
     else:
         st.error("Không thể tải cuộc trò chuyện này")
 
-def create_new_chat():
+def create_new_conversation():
     """Tạo cuộc trò chuyện mới"""
+    storage = get_chat_storage()
+    conversation_id = storage.create_conversation()
+    
     current_time = datetime.datetime.now().strftime("%H:%M")
-    st.session_state.messages = [
-        {
-            "role": "assistant",
-            "content": "Xin chào! Mình ở đây sẵn sàng lắng nghe và chia sẻ cùng bạn. Bạn đang nghĩ gì vậy?",
-            "timestamp": current_time
-        }
-    ]
-    # Generate a new ID for the conversation
-    chat_storage = get_chat_storage()
-    chat_id = chat_storage.generate_chat_id()
-    st.session_state.current_chat_id = chat_id
+    initial_message = {
+        "role": "assistant",
+        "content": "Xin chào! Mình ở đây sẵn sàng lắng nghe và chia sẻ cùng bạn. Bạn đang nghĩ gì vậy?",
+        "timestamp": current_time
+    }
+    
+    st.session_state.messages = [initial_message]
+    st.session_state.current_conversation_id = conversation_id
+    
+    # Lưu tin nhắn chào hỏi vào database
+    storage.save_message(conversation_id, "assistant", initial_message["content"], current_time)
     
     st.rerun()
 
-def delete_chat(chat_id):
+def delete_conversation(conversation_id):
     """Xóa một cuộc trò chuyện"""
-    chat_storage = get_chat_storage()
-    chat_storage.delete_chat(chat_id)
+    storage = get_chat_storage()
+    storage.delete_conversation(conversation_id)
     
-    if st.session_state.get("current_chat_id") == chat_id:
-        create_new_chat()
+    if st.session_state.get("current_conversation_id") == conversation_id:
+        create_new_conversation()
     else:
         st.rerun()
 
@@ -321,7 +292,7 @@ def get_base64_of_image(image_path):
 def create_sidebar():
     with st.sidebar:
         if st.button("+ Cuộc trò chuyện mới", use_container_width=True, key="new_chat_btn"):
-            create_new_chat()
+            create_new_conversation()
         
         sidebar_bg_path = str(Config.Path.IMAGES_DIR / "sidebar-bg-1.jpg") 
         
@@ -346,23 +317,21 @@ def create_sidebar():
        
         st.markdown("### Lịch sử trò chuyện")
         
-        chat_storage = get_chat_storage()
-        all_chats = chat_storage.get_all_chats()
+        storage = get_chat_storage()
+        all_conversations = storage.get_all_conversations()
         
-        real_chats = [chat for chat in all_chats if chat.get("is_real_conversation", False)]
-        
-        if real_chats:
-            for chat in reversed(real_chats):
+        if all_conversations:
+            for conv in all_conversations:
                 with st.container():
                     col1, col2 = st.columns([3, 0.5])
                     with col1:
-                        is_current = st.session_state.get("current_chat_id") == chat.get("id")
-                        button_label = f"🔹 {chat['preview']}" if is_current else f"{chat['preview']}"
-                        if st.button(button_label, key=f"btn_{chat['id']}", use_container_width=True):
-                            load_chat_history(chat['id'])
+                        is_current = st.session_state.get("current_conversation_id") == conv.get("id")
+                        button_label = f"🔹 {conv['title']}" if is_current else f"{conv['title']}"
+                        if st.button(button_label, key=f"btn_{conv['id']}", use_container_width=True):
+                            load_conversation(conv['id'])
                     with col2:
-                        if st.button("🗑️", key=f"del_{chat['id']}", help="Xóa cuộc trò chuyện này"):
-                            delete_chat(chat['id'])
+                        if st.button("🗑️", key=f"del_{conv['id']}", help="Xóa cuộc trò chuyện này"):
+                            delete_conversation(conv['id'])
         else:
             st.caption("Chưa có cuộc trò chuyện nào")
 
@@ -524,18 +493,41 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if "messages" not in st.session_state:
-    current_time = datetime.datetime.now().strftime("%H:%M")
-    st.session_state.messages = [
-        {
+    # Kiểm tra xem có cuộc trò chuyện nào đang mở không
+    if "current_conversation_id" not in st.session_state:
+        # Tạo cuộc trò chuyện mới
+        storage = get_chat_storage()
+        conversation_id = storage.create_conversation()
+        st.session_state.current_conversation_id = conversation_id
+        
+        current_time = datetime.datetime.now().strftime("%H:%M")
+        initial_message = {
             "role": "assistant",
             "content": "Xin chào! Mình ở đây sẵn sàng lắng nghe và chia sẻ cùng bạn. Bạn đang nghĩ gì vậy?",
             "timestamp": current_time
         }
-    ]
-    
-    chat_storage = get_chat_storage()
-    chat_id = chat_storage.generate_chat_id()
-    st.session_state.current_chat_id = chat_id
+        
+        st.session_state.messages = [initial_message]
+        
+        # Lưu tin nhắn chào hỏi vào database
+        storage.save_message(conversation_id, "assistant", initial_message["content"], current_time)
+    else:
+        # Load cuộc trò chuyện hiện tại
+        conversation_id = st.session_state.current_conversation_id
+        storage = get_chat_storage()
+        messages = storage.get_conversation_messages(conversation_id)
+        if messages:
+            st.session_state.messages = messages
+        else:
+            # Nếu không có tin nhắn, tạo tin nhắn chào hỏi
+            current_time = datetime.datetime.now().strftime("%H:%M")
+            initial_message = {
+                "role": "assistant",
+                "content": "Xin chào! Mình ở đây sẵn sàng lắng nghe và chia sẻ cùng bạn. Bạn đang nghĩ gì vậy?",
+                "timestamp": current_time
+            }
+            st.session_state.messages = [initial_message]
+            storage.save_message(conversation_id, "assistant", initial_message["content"], current_time)
     
 create_sidebar()
 
