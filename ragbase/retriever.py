@@ -13,6 +13,10 @@ from ragbase.config import Config
 from ragbase.model import create_embeddings, create_reranker
 
 
+# Cache for BM25 retrievers to avoid re-creating them
+_bm25_cache = {}
+
+
 def create_semantic_retriever(
     llm: BaseLanguageModel, vector_store: Optional[VectorStore] = None
 ) -> VectorStoreRetriever:
@@ -27,6 +31,28 @@ def create_semantic_retriever(
         search_type="similarity", search_kwargs={"k": 5}
     )
 
+    return retriever
+
+
+def create_optimized_retriever(
+    llm: BaseLanguageModel,
+    vector_store: VectorStore,
+    retriever_type: str = "full"
+) -> VectorStoreRetriever:
+    """
+    Optimized retriever that only uses vector store, no BM25 to avoid loading documents.
+    This is much faster since we don't need to load Excel files.
+    """
+    # Use Config values for k
+    from ragbase.config import Config
+    k_value = (Config.Retriever.FULL_RETRIEVAL_K if retriever_type == "full" 
+               else Config.Retriever.SUMMARY_RETRIEVAL_K)
+    
+    retriever = vector_store.as_retriever(
+        search_type="similarity", 
+        search_kwargs={"k": k_value}
+    )
+    
     return retriever
 
 def create_keyword_retriever(documents: list[Document]) -> BM25Retriever:

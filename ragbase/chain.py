@@ -1,4 +1,5 @@
 import re
+import time
 from operator import itemgetter
 from typing import List
 
@@ -100,26 +101,53 @@ def format_documents(documents: List[Document]) -> str:
 
 
 def create_chain(llm: BaseLanguageModel, retriever_full: VectorStoreRetriever, retriever_summary: VectorStoreRetriever) -> Runnable:
-    # Step 1: LLM router chain
-    routing_chain = ROUTING_PROMPT | llm | RunnableLambda(lambda output: output.content.strip().lower())
+    # Step 1: Optimized routing - use simple heuristics for common cases
+    def smart_route(question: str) -> str:
+        question_lower = question.lower()
+        
+        # Simple heuristics to avoid LLM call for routing
+        simple_keywords = ['là gì', 'nghĩa là gì', 'định nghĩa', 'khái niệm', 'ý nghĩa của']
+        complex_keywords = ['tại sao', 'làm thế nào', 'phải làm gì', 'cách nào', 'giải quyết']
+        
+        # Quick routing based on keywords
+        for keyword in simple_keywords:
+            if keyword in question_lower:
+                print(f"🚀 Quick route: summary (keyword: {keyword})")
+                return "summary"
+                
+        for keyword in complex_keywords:
+            if keyword in question_lower:
+                print(f"🚀 Quick route: full (keyword: {keyword})")
+                return "full"
+        
+        # Fallback to LLM routing for unclear cases
+        routing_chain = ROUTING_PROMPT | llm | RunnableLambda(lambda output: output.content.strip().lower())
+        result = routing_chain.invoke({"question": question})
+        print(f"🧭 LLM Route: {result}")
+        return result
 
-    # Step 2: dynamic retriever routing
+    # Step 2: dynamic retriever routing with timing
     def get_retriever(routing_output: str) -> VectorStoreRetriever:
         return retriever_summary if routing_output == "summary" else retriever_full
 
     def retrieve_context(inputs: dict) -> List[Document]:
         question = inputs["question"]
-        routing_output = routing_chain.invoke({"question": question})
-        print(f"🧭 Type: {routing_output}")
+        
+        routing_start = time.time()
+        routing_output = smart_route(question)
+        routing_end = time.time()
+        print(f"⚡ Routing took: {routing_end - routing_start:.2f}s")
+        
         retriever = get_retriever(routing_output)
         retriever_config = retriever.with_config({"run_name": f"context_retriever_{routing_output}"})
         
-        # Debug: Show retrieved documents
+        # Retrieval with timing
+        retrieval_start = time.time()
         docs = retriever_config.invoke(question)
-        print(f"📄 Retrieved {len(docs)} documents:")
-        for i, doc in enumerate(docs[:3]):  # Show top 3
-            preview = doc.page_content[:100].replace('\n', ' ')
-            print(f"   {i+1}. {preview}...")
+        retrieval_end = time.time()
+        print(f"⚡ Retrieval took: {retrieval_end - retrieval_start:.2f}s")
+        
+        print(f"📄 Retrieved {len(docs)} documents from {routing_output}")
         
         return docs
 

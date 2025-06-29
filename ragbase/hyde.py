@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+import hashlib
 from typing import Optional
 
 import google.generativeai as genai
@@ -35,6 +36,8 @@ class QueryTransformationHyDE:
         self.model = None
         self.current_key_index = 0
         self._configure_model(self.keys[self.current_key_index])
+        # Simple in-memory cache for HyDE transformations
+        self._cache = {}
 
     def _configure_model(self, api_key: str):
         genai.configure(api_key=api_key)
@@ -48,7 +51,26 @@ class QueryTransformationHyDE:
             return True
         return False
 
-    def transform_query(self, query: str) -> str:
+    def _get_cache_key(self, query: str) -> str:
+        """Generate a cache key for the query"""
+        return hashlib.md5(query.encode()).hexdigest()
+
+    def transform_query(self, query: str, fast_mode: bool = False) -> str:
+        # Fast mode: skip transformation for simple queries
+        if fast_mode:
+            simple_patterns = [
+                'là gì', 'nghĩa là gì', 'định nghĩa', 'khái niệm',
+                'ý nghĩa', 'có nghĩa', 'hiểu như thế nào'
+            ]
+            if any(pattern in query.lower() for pattern in simple_patterns):
+                print(f"🚀 Fast mode: skipping HyDE for simple query")
+                return query
+        
+        # Check cache first
+        cache_key = self._get_cache_key(query)
+        if cache_key in self._cache:
+            print(f"🚀 HyDE cache hit for query")
+            return self._cache[cache_key]
         prompt = f"""
         Bạn là một người bạn tâm giao, luôn lắng nghe và chia sẻ những kinh nghiệm sống chân thành.
 
@@ -69,9 +91,17 @@ class QueryTransformationHyDE:
 
         while retry_attempts < max_attempts:
             try:
+                start_time = time.time()
                 response = self.model.generate_content(prompt)
                 generated_response = response.text.strip()
-                return f"Câu hỏi: {query}\nCâu trả lời tham khảo: {generated_response}"
+                result = f"Câu hỏi: {query}\nCâu trả lời tham khảo: {generated_response}"
+                
+                # Cache the result
+                self._cache[cache_key] = result
+                
+                end_time = time.time()
+                print(f"⚡ HyDE transformation took: {end_time - start_time:.2f}s")
+                return result
             except Exception as e:
                 error_message = str(e)
                 logging.warning(f"❌ Attempt {retry_attempts + 1} failed: {error_message}")

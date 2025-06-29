@@ -23,7 +23,7 @@ from ragbase.config import Config
 from ragbase.hyde import QueryTransformationHyDE
 from ragbase.ingestor import Ingestor
 from ragbase.model import create_embeddings, create_llm, create_reranker
-from ragbase.retriever import create_hybrid_retriever
+from ragbase.retriever import create_hybrid_retriever, create_optimized_retriever
 from ragbase.session_history import get_session_history, add_message_to_history, load_history_from_db
 from ragbase.utils import (load_documents_from_excel,
                            load_summary_documents_from_excel)
@@ -43,40 +43,42 @@ def get_chat_storage():
     db_path = "chat_history.db"
     return ChatStorage(db_file=db_path)
 
+# Cache HyDE instance to avoid re-creating it
+@st.cache_resource(show_spinner=False)
+def get_hyde_transformer():
+    return QueryTransformationHyDE()
+
+# Cache embedding model to avoid reloading
+@st.cache_resource(show_spinner=False)
+def get_embedding_model():
+    return create_embeddings()
+
 
 @st.cache_resource(show_spinner=False)
 def build_qa_chain():
-    embedding_model = create_embeddings()
-    # Load prebuilt vector store
     start = time.time()
-    documents = load_documents_from_excel(excel_path=Config.Path.EXCEL_FILE)
-    summary_documents = load_summary_documents_from_excel(excel_path=Config.Path.SUMMARY_EXCEL_FILE)
-    # vector_store = Ingestor().ingest()
-    # summary_vector_store = Ingestor().ingest_summary()
     
-    # Load collection "documents"
+    embedding_model = get_embedding_model()  # Use cached embedding model
+    
+    # Load collection "documents" - NO EXCEL LOADING NEEDED!
     vector_store = QdrantVectorStore(
         client=client,
-        collection_name="documents",
+        collection_name="documents", 
         embedding=embedding_model
     )
 
-    # Load collection "summary"
+    # Load collection "summary" - NO EXCEL LOADING NEEDED!
     summary_vector_store = QdrantVectorStore(
         client=client,
         collection_name="summary",
         embedding=embedding_model
     )
     
-
-    end = time.time()
-    print(f"Thời gian embedding: {end - start} giây")
-    
     llm = create_llm()
 
-    # Hybrid retrievers
-    retriever_full = create_hybrid_retriever(llm, documents, vector_store)
-    retriever_summary = create_hybrid_retriever(llm, summary_documents, summary_vector_store)
+    # Create optimized retrievers without loading Excel files
+    retriever_full = create_optimized_retriever(llm, vector_store, "full")
+    retriever_summary = create_optimized_retriever(llm, summary_vector_store, "summary")
 
     # Apply reranker or chain filter if needed
     if Config.Retriever.USE_RERANKER:
@@ -95,6 +97,9 @@ def build_qa_chain():
             base_compressor=LLMChainFilter.from_llm(llm), base_retriever=retriever_summary
         )
 
+    end = time.time()
+    print(f"⚡ Chain initialized in: {end - start:.2f} seconds")
+    
     return create_chain(llm, retriever_full, retriever_summary)
 
 # Utility function to run async functions in Streamlit
@@ -130,39 +135,81 @@ def run_async_in_streamlit(async_func, *args, **kwargs):
             raise
 
 async def ask_chain(question: str, chain):
-    full_response = ""
     assistant = st.chat_message(
         "assistant", avatar=str(Config.Path.IMAGES_DIR / "assistant-avatar.jfif")
     )
     with assistant:
         message_placeholder = st.empty()
-        message_placeholder.status(random.choice(LOADING_MESSAGES), state="running")
+        message_placeholder.status("🤔 Đang suy nghĩ...", state="running")
+        
+        full_response = ""
         documents = []
         
+        # Start timing
+        start_time = time.time()
+        
         original_question = question
-        question_transformed = QueryTransformationHyDE().transform_query(original_question)
+        
+        # HyDE transformation with timing (with fast mode for simple queries)
+        hyde_start = time.time()
+        hyde_transformer = get_hyde_transformer()
+        question_transformed = hyde_transformer.transform_query(original_question, fast_mode=True)
+        hyde_end = time.time()
+        print(f"⚡ HyDE took: {hyde_end - hyde_start:.2f}s")
         
         # Sử dụng conversation_id từ session state
         conversation_id = st.session_state.get("current_conversation_id", "default")
         
-        # Thu thập toàn bộ câu trả lời từ `ask_question`
-        raw_response = ""
+        # Update status based on process
+        if hyde_end - hyde_start < 0.5:
+            message_placeholder.status("🔍 Đang tìm kiếm thông tin...", state="running")
+        else:
+            message_placeholder.status("🧠 Đang phân tích câu hỏi...", state="running")
+            time.sleep(0.5)  # Brief pause to show status
+            message_placeholder.status("🔍 Đang tìm kiếm thông tin...", state="running")
+        
+        # Stream response with improved display
+        chunk_count = 0
+        response_started = False
+        
         async for event in ask_question(chain, question_transformed, session_id=conversation_id):
-            if isinstance(event, str):
-                raw_response += event
+            if isinstance(event, str) and event.strip():
+                chunk_count += 1
+                full_response += event
+                
+                # Start showing response after first meaningful chunk
+                if not response_started and len(full_response.strip()) > 10:
+                    response_started = True
+                    message_placeholder.empty()
+                
+                # Update display every few chunks or when we have substantial content
+                if response_started and (chunk_count % 3 == 0 or len(event) > 20):
+                    # Remove thinking tags before displaying
+                    display_response = re.sub(r"<think>.*?</think>", "", full_response, flags=re.DOTALL)
+                    message_placeholder.markdown(display_response + "▌")  # Cursor effect
+                    
             if isinstance(event, list):
                 documents.extend(event)
 
-        # Loại bỏ các thẻ <think>...</think> bằng regex
-        full_response = re.sub(r"<think>.*?</think>", "", raw_response, flags=re.DOTALL)
-
-        # Hiển thị câu trả lời đã xử lý lên UI
+        # Final cleanup and display
+        end_time = time.time()
+        total_time = end_time - start_time
+        
+        # Remove thinking tags from final response
+        full_response = re.sub(r"<think>.*?</think>", "", full_response, flags=re.DOTALL)
+        
+        # Final display without cursor
         message_placeholder.markdown(full_response)
-        for i, doc in enumerate(documents):
-            with st.expander(f"Source #{i+1}"):
-                st.write(doc.page_content)
+        
+        print(f"🏁 Total response time: {total_time:.2f}s")
+        
+        # Show sources
+        if documents:
+            for i, doc in enumerate(documents[:3]):  # Limit to top 3 sources
+                with st.expander(f"Source #{i+1}", expanded=False):
+                    st.write(doc.page_content[:500] + "..." if len(doc.page_content) > 500 else doc.page_content)
 
-    # Lưu tin nhắn assistant vào cả UI và database
+    # Save to session and database
     current_time = datetime.datetime.now().strftime("%H:%M")
     st.session_state.messages.append({
         "role": "assistant", 
@@ -170,7 +217,6 @@ async def ask_chain(question: str, chain):
         "timestamp": current_time
     })
     
-    # Lưu vào database và đồng bộ với chain history
     add_message_to_history(conversation_id, "assistant", full_response)
 
 

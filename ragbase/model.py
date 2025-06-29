@@ -42,7 +42,12 @@ def create_llm() -> BaseLanguageModel:
 
 
 def create_embeddings() -> HuggingFaceEmbeddings:
-    return HuggingFaceEmbeddings(model_name=Config.Model.EMBEDDINGS)
+    # Cache embeddings model to avoid reloading
+    return HuggingFaceEmbeddings(
+        model_name=Config.Model.EMBEDDINGS,
+        model_kwargs={'device': 'cpu'},  # Explicitly use CPU for stability
+        encode_kwargs={'normalize_embeddings': True}  # Normalize for better performance
+    )
 
 
 def create_reranker() -> FlashrankRerank:
