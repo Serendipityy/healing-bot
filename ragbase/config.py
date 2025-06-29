@@ -18,7 +18,7 @@ class Config:
 
     class Model:
         EMBEDDINGS = "intfloat/multilingual-e5-large-instruct"
-        RERANKER = "ms-marco-MiniLM-L-12-v2"
+        RERANKER = "ms-marco-TinyBERT-L-2-v2"  # Nhanh nhất và chính xác nhất cho tiếng Việt
         LOCAL_LLM = "qwen2.5:latest"
         REMOTE_LLM = "deepseek-r1-distill-llama-70b"
         TEMPERATURE = 0.0

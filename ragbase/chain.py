@@ -65,13 +65,22 @@ Bạn là một người bạn thân ảo – như tri kỷ online – luôn đ�
 
 # Prompt dùng để phân loại câu hỏi
 ROUTING_PROMPT = PromptTemplate.from_template("""
-Bạn là một chuyên gia trong lĩnh vực tư vấn tâm lý và chăm sóc sức khỏe tinh thần.
+Bạn là một chuyên gia phân loại câu hỏi tâm lý và chăm sóc sức khỏe tinh thần.
 
-Hãy phân loại câu hỏi (chỉ dựa theo phần "Câu hỏi", không dựa vào phần "Câu trả lời tham khảo") dưới đây dựa trên mức độ thông tin mà người hỏi cần:
-- Trả lời **"summary"** nếu câu hỏi quá ngắn gọn hoặc yêu cầu đơn giản, một cái nhìn tổng quan, định hướng, hoặc lời khuyên chung.
-- Trả lời **"full"** nếu câu hỏi yêu cầu phân tích sâu, thông tin chi tiết, hoặc phản hồi mang tính cá nhân hóa cao.
+Phân loại câu hỏi dưới đây (chỉ dựa theo "Câu hỏi", bỏ qua "Câu trả lời tham khảo"):
 
-Chỉ trả lời một từ duy nhất: "summary" hoặc "full".
+**Trả lời "full" nếu:**
+- Câu hỏi về triết lý nhân sinh, ý nghĩa cuộc sống (VD: "tuổi nào thì được phép chênh vênh", "nếu cả đời không rực rỡ thì sao")
+- Yêu cầu phân tích tâm lý sâu sắc hoặc lời khuyên chi tiết
+- Câu hỏi phức tạp về mối quan hệ, tình cảm
+- Chia sẻ câu chuyện dài cần tư vấn cụ thể
+
+**Trả lời "summary" nếu:**
+- Câu hỏi đơn giản về định nghĩa, khái niệm cơ bản
+- Yêu cầu thông tin tổng quan, hướng dẫn chung
+- Câu hỏi ngắn gọn không cần phân tích sâu
+
+Chỉ trả lời một từ: "summary" hoặc "full".
 
 Câu hỏi: {question}
 """)
@@ -104,7 +113,15 @@ def create_chain(llm: BaseLanguageModel, retriever_full: VectorStoreRetriever, r
         print(f"🧭 Type: {routing_output}")
         retriever = get_retriever(routing_output)
         retriever_config = retriever.with_config({"run_name": f"context_retriever_{routing_output}"})
-        return retriever_config.invoke(question)
+        
+        # Debug: Show retrieved documents
+        docs = retriever_config.invoke(question)
+        print(f"📄 Retrieved {len(docs)} documents:")
+        for i, doc in enumerate(docs[:3]):  # Show top 3
+            preview = doc.page_content[:100].replace('\n', ' ')
+            print(f"   {i+1}. {preview}...")
+        
+        return docs
 
     prompt = ChatPromptTemplate.from_messages(
         [

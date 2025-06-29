@@ -50,14 +50,17 @@ class QueryTransformationHyDE:
 
     def transform_query(self, query: str) -> str:
         prompt = f"""
-        Bạn là một chuyên gia tư vấn tâm lý và sức khỏe tinh thần.
+        Bạn là một người bạn tâm giao, luôn lắng nghe và chia sẻ những kinh nghiệm sống chân thành.
 
-        Hãy trả lời câu truy vấn sau một cách tự nhiên, chân thành, sâu sắc và đầy cảm thông:
+        Hãy viết một đoạn văn ngắn gọn (2-3 câu) phản ánh về câu hỏi sau, như thể bạn đang chia sẻ kinh nghiệm hoặc suy nghĩ cá nhân:
 
-        🔎 Truy vấn từ người dùng:
-        "{query}"
+        🔎 Câu hỏi: "{query}"
 
-        Đoạn văn nên thể hiện sự thấu hiểu cảm xúc, gợi mở hướng nhìn tích cực, và mang lại cảm giác được lắng nghe và chữa lành. 
+        Yêu cầu:
+        - Viết như lời tâm sự, không phải lời khuyên chuyên môn
+        - Ngắn gọn, súc tích, bám sát chủ đề
+        - Thể hiện sự đồng cảm và hiểu biết thực tế
+        - Tránh dùng từ ngữ chuyên môn tâm lý
         **Trả lời bằng tiếng Việt**.
         """
 
