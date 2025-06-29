@@ -36,11 +36,36 @@ def load_documents_from_excel(excel_path: Path = None) -> List[Document]:
         for i in range(0, len(df), batch_size):
             batch = df.iloc[i:i+batch_size]
             for _, row in batch.iterrows():
-                # Format answers
+                # Format answers with best answer marking
                 answers_list = row['answers']
-                formatted_answers = "\n- " + "\n- ".join(answers_list) if answers_list else "No answers available"
+                best_answer = str(row['best_answer']).strip()
+                
+                if answers_list and best_answer:
+                    formatted_answers = []
+                    best_found = False
+                    
+                    for answer in answers_list:
+                        answer_str = str(answer).strip()
+                        # Check if this answer matches the best answer
+                        if answer_str == best_answer or (len(answer_str) > 50 and best_answer in answer_str):
+                            formatted_answers.append(f"⭐ BEST: {answer_str}")
+                            best_found = True
+                        else:
+                            formatted_answers.append(f"- {answer_str}")
+                    
+                    # If best answer wasn't found in the list, add it at the top
+                    if not best_found:
+                        formatted_answers.insert(0, f"⭐ BEST: {best_answer}")
+                    
+                    answers_text = "\n".join(formatted_answers)
+                else:
+                    # Fallback if no answers list or best answer
+                    answers_text = f"⭐ BEST: {best_answer}" if best_answer else "No answers available"
 
-                content = f"""Question: {row['question']}\nBest answer: {row['best_answer']}\nAnswers:{formatted_answers}"""
+                content = f"""Question: {row['question']}
+
+Answers:
+{answers_text}"""
                 doc = Document(
                     page_content=content,
                     metadata={"labels": row['labels'], "source": str(excel_path)}
