@@ -29,7 +29,7 @@ class Config:
         USE_RERANKER = True  # Enable for better quality, False for max speed
         USE_CHAIN_FILTER = False
         # Optimize retrieval counts for faster performance
-        FULL_RETRIEVAL_K = 4  # Reduced from default 5
+        FULL_RETRIEVAL_K = 5  # Reduced from default 5
         SUMMARY_RETRIEVAL_K = 3  # Reduced for summary queries
 
     DEBUG = False
