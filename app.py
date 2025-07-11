@@ -136,7 +136,7 @@ def run_async_in_streamlit(async_func, *args, **kwargs):
 
 async def ask_chain(question: str, chain):
     assistant = st.chat_message(
-        "assistant", avatar=str(Config.Path.IMAGES_DIR / "assistant-avatar.jfif")
+        "assistant", avatar=str(Config.Path.IMAGES_DIR / "bot-avatar-1.jpg")
     )
     with assistant:
         message_placeholder = st.empty()
@@ -158,7 +158,10 @@ async def ask_chain(question: str, chain):
         print(f"⚡ HyDE took: {hyde_end - hyde_start:.2f}s")
         
         # Sử dụng conversation_id từ session state
-        conversation_id = st.session_state.get("current_conversation_id", "default")
+        conversation_id = st.session_state.get("current_conversation_id")
+        if conversation_id is None:
+            # Nếu không có conversation_id, tạo một ID tạm thời cho session này
+            conversation_id = "temp_session"
         
         # Update status based on process
         if hyde_end - hyde_start < 0.5:
@@ -204,10 +207,10 @@ async def ask_chain(question: str, chain):
         print(f"🏁 Total response time: {total_time:.2f}s")
         
         # Show sources
-        if documents:
-            for i, doc in enumerate(documents[:3]):  # Limit to top 3 sources
-                with st.expander(f"Source #{i+1}", expanded=False):
-                    st.write(doc.page_content[:500] + "..." if len(doc.page_content) > 500 else doc.page_content)
+        # if documents:
+        #     for i, doc in enumerate(documents[:3]):  # Limit to top 3 sources
+        #         with st.expander(f"Source #{i+1}", expanded=False):
+        #             st.write(doc.page_content[:500] + "..." if len(doc.page_content) > 500 else doc.page_content)
 
     # Save to session and database
     current_time = datetime.datetime.now().strftime("%H:%M")
@@ -217,14 +220,17 @@ async def ask_chain(question: str, chain):
         "timestamp": current_time
     })
     
-    add_message_to_history(conversation_id, "assistant", full_response)
+    # Chỉ lưu vào database nếu có conversation_id thật (không phải temp)
+    actual_conversation_id = st.session_state.get("current_conversation_id")
+    if actual_conversation_id and actual_conversation_id != "temp_session":
+        add_message_to_history(actual_conversation_id, "assistant", full_response)
 
 
 def show_message_history():
     for message in st.session_state.messages:
         role = message["role"]
         avatar_path = (
-            Config.Path.IMAGES_DIR / "assistant-avatar.jfif"
+            Config.Path.IMAGES_DIR / "bot-avatar-1.jpg"
             if role == "assistant"
             else Config.Path.IMAGES_DIR / "user-avatar.jfif"
         )
@@ -234,6 +240,21 @@ def show_message_history():
 def show_chat_input(chain):
     if prompt := st.chat_input("Hãy chia sẻ tâm sự của bạn..."):
         current_time = datetime.datetime.now().strftime("%H:%M")
+        
+        # Kiểm tra xem đã có cuộc trò chuyện chưa, nếu chưa thì tạo mới
+        if st.session_state.get("current_conversation_id") is None:
+            storage = get_chat_storage()
+            conversation_id = storage.create_conversation()
+            st.session_state.current_conversation_id = conversation_id
+            
+            # Thêm tin nhắn chào hỏi từ assistant trước khi user chat
+            initial_message = {
+                "role": "assistant",
+                "content": "Xin chào! Mình ở đây sẵn sàng lắng nghe và chia sẻ cùng bạn. Bạn đang nghĩ gì vậy?",
+                "timestamp": current_time
+            }
+            st.session_state.messages = [initial_message]
+            storage.save_message(conversation_id, "assistant", initial_message["content"], current_time)
         
         # Lưu tin nhắn user vào UI
         st.session_state.messages.append({
@@ -250,7 +271,7 @@ def show_chat_input(chain):
             st.markdown(prompt)
         
         # Lưu vào database và đồng bộ với chain history
-        conversation_id = st.session_state.get("current_conversation_id", "default")
+        conversation_id = st.session_state.get("current_conversation_id")
         add_message_to_history(conversation_id, "user", prompt)
         
         # Cập nhật title nếu đây là tin nhắn đầu tiên của user
@@ -267,7 +288,7 @@ def show_chat_input(chain):
             # Fall back to a synchronous approach if needed
             full_response = "Xin lỗi, mình đang gặp vấn đề kỹ thuật. Bạn có thể thử lại không?"
             with st.chat_message(
-                "assistant", avatar=str(Config.Path.IMAGES_DIR / "assistant-avatar.jfif")
+                "assistant", avatar=str(Config.Path.IMAGES_DIR / "bot-avatar-1.jpg")
             ):
                 st.markdown(full_response)
             
@@ -324,7 +345,10 @@ def delete_conversation(conversation_id):
     storage.delete_conversation(conversation_id)
     
     if st.session_state.get("current_conversation_id") == conversation_id:
-        create_new_conversation()
+        # Reset về trạng thái không có cuộc trò chuyện thay vì tạo mới
+        st.session_state.messages = []
+        st.session_state.current_conversation_id = None
+        st.rerun()
     else:
         st.rerun()
 
@@ -358,7 +382,7 @@ def create_sidebar():
                 """,
                 unsafe_allow_html=True
             )
-        st.image(str(Config.Path.IMAGES_DIR / "sidebar-image-1.jpg"))
+        st.image(str(Config.Path.IMAGES_DIR / "sidebar-image-1-new.jpg"))
         
        
         st.markdown("### Lịch sử trò chuyện")
@@ -450,6 +474,11 @@ st.markdown("""
         background-color: unset !important;
     }
     
+        
+    .st-emotion-cache-janbn0 {
+        background-color: #d7e6e4 !important;
+    }
+    
     div[data-testid*="stChatMessage"] {
         align-items: center !important;
     }
@@ -476,7 +505,6 @@ st.markdown("""
    
     h1, h3 {
         color: black !important;
-        
     } 
     
    
@@ -487,32 +515,83 @@ st.markdown("""
         background: unset !important;
     }
     
+    
     button[data-testid="chatSubmitButton"] {
         border-radius: 50%;
+        position: relative !important;
+        bottom: 0.5rem !important;
+        flex-shrink: 0 !important;
+        align-self: flex-end !important;
+       
     }
     
     .st-emotion-cache-1f3w014 {
         fill: #5BC099;
     }
     
-    button[data-testid="stChatInputSubmitButton"]:hover {
-        background: unset !important;
+    button[data-testid="stChatInputSubmitButton"] .st-emotion-cache-1f3w014 {
+        fill: white;  
     }
+    
+    button[data-testid="stChatInputSubmitButton"] {
+        background-color: #5BC099 !important; /* Màu nền của nút */
+        border-radius: 50% !important; /* Bo góc */
+        border: none !important;
+        padding: 0.5rem;
+        transform: translate(-0.5rem, 0);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    
     
     .stButton button:hover {
         background-color: #f0f7ff !important;
     }
     
-    .stChatInput > div,
-    .st-b1 {
+    .stChatInput > div:first-child {
         background: white !important;
-        # padding: 2rem;
+        # padding: 1.5rem 1rem;
+        height: 3.5rem !important;
+        min-height: 3.5rem !important;
+        max-height: 3.5rem !important;
+        display: flex !important;
+        align-items: center !important;
+        box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+          transition: background-color 0.3s ease, box-shadow 0.3s ease; 
+        border: 2px solid #5BC099 !important;
+
+    }
+    .stChatInput > div:first-child:hover,
+    .stChatInput > div:first-child:focus-within{
+        box-shadow: 0px 0px 8px rgba(91, 192, 153, 0.5); 
     }
     
+    .st-bq {
+        padding-right: 0;
+        flex-grow: 1;
+    }
+    .st-emotion-cache-sey4o0 {
+        align-items: center !important;
+        height: 3.5rem !important;
+        position: unset;
+    }
+    
+    /* Fixed send button position */
+    button[data-testid="chatSubmitButton"] {
+        border-radius: 50%;
+        flex-shrink: 0 !important;
+        align-self: center !important;
+    }
     textarea {
         color: black !important;
         background: white !important;
         caret-color: black !important;
+        resize: none !important;
+        height: 2.5rem !important;
+        min-height: 2.5rem !important;
+        max-height: 2.5rem !important;
+        overflow-y: auto !important;
     }
     
     .stButton button:first-of-type {
@@ -541,39 +620,20 @@ st.markdown("""
 if "messages" not in st.session_state:
     # Kiểm tra xem có cuộc trò chuyện nào đang mở không
     if "current_conversation_id" not in st.session_state:
-        # Tạo cuộc trò chuyện mới
-        storage = get_chat_storage()
-        conversation_id = storage.create_conversation()
-        st.session_state.current_conversation_id = conversation_id
-        
-        current_time = datetime.datetime.now().strftime("%H:%M")
-        initial_message = {
-            "role": "assistant",
-            "content": "Xin chào! Mình ở đây sẵn sàng lắng nghe và chia sẻ cùng bạn. Bạn đang nghĩ gì vậy?",
-            "timestamp": current_time
-        }
-        
-        st.session_state.messages = [initial_message]
-        
-        # Lưu tin nhắn chào hỏi vào database
-        storage.save_message(conversation_id, "assistant", initial_message["content"], current_time)
+        # Chỉ khởi tạo session state, không tạo cuộc trò chuyện ngay
+        st.session_state.messages = []
+        st.session_state.current_conversation_id = None
     else:
-        # Load cuộc trò chuyện hiện tại
+        # Load cuộc trò chuyện hiện tại nếu có
         conversation_id = st.session_state.current_conversation_id
         storage = get_chat_storage()
         messages = storage.get_conversation_messages(conversation_id)
         if messages:
             st.session_state.messages = messages
         else:
-            # Nếu không có tin nhắn, tạo tin nhắn chào hỏi
-            current_time = datetime.datetime.now().strftime("%H:%M")
-            initial_message = {
-                "role": "assistant",
-                "content": "Xin chào! Mình ở đây sẵn sàng lắng nghe và chia sẻ cùng bạn. Bạn đang nghĩ gì vậy?",
-                "timestamp": current_time
-            }
-            st.session_state.messages = [initial_message]
-            storage.save_message(conversation_id, "assistant", initial_message["content"], current_time)
+            # Nếu conversation_id tồn tại nhưng không có tin nhắn, reset về trạng thái trống
+            st.session_state.messages = []
+            st.session_state.current_conversation_id = None
     
 create_sidebar()
 
@@ -583,6 +643,15 @@ with chat_container:
     with st.spinner("Starting..."):
         chain = build_qa_chain()
     
-    show_message_history()
+    # Chỉ hiển thị tin nhắn nếu có cuộc trò chuyện
+    if st.session_state.get("current_conversation_id") is not None and st.session_state.messages:
+        show_message_history()
+    else:
+        # Hiển thị tin nhắn chào hỏi mặc định khi chưa có cuộc trò chuyện
+        with st.chat_message(
+            "assistant", 
+            avatar=str(Config.Path.IMAGES_DIR / "bot-avatar-1.jpg")
+        ):
+            st.markdown("Xin chào! Mình ở đây sẵn sàng lắng nghe và chia sẻ cùng bạn. Bạn đang nghĩ gì vậy?")
 
 show_chat_input(chain)
