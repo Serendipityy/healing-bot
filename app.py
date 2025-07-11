@@ -277,7 +277,7 @@ def show_chat_input(chain):
         # Cập nhật title nếu đây là tin nhắn đầu tiên của user
         if len([msg for msg in st.session_state.messages if msg["role"] == "user"]) == 1:
             storage = get_chat_storage()
-            title = prompt[:50] + "..." if len(prompt) > 50 else prompt
+            title = format_conversation_title(prompt)
             storage.update_conversation_title(conversation_id, title)
         
         try:
@@ -359,9 +359,15 @@ def get_base64_of_image(image_path):
         encoded_string = base64.b64encode(image_file.read()).decode()
     return encoded_string
 
+def format_conversation_title(text, max_length=30):
+    """Format conversation title với độ dài tối đa và thêm ... nếu cần"""
+    if len(text) <= max_length:
+        return text
+    return text[:max_length].rstrip() + "..."
+
 def create_sidebar():
     with st.sidebar:
-        if st.button("+ Cuộc trò chuyện mới", use_container_width=True, key="new_chat_btn"):
+        if st.button("✚ Cuộc trò chuyện mới", use_container_width=True, key="new_chat_btn"):
             create_new_conversation()
         
         sidebar_bg_path = str(Config.Path.IMAGES_DIR / "sidebar-bg-1.jpg") 
@@ -396,7 +402,8 @@ def create_sidebar():
                     col1, col2 = st.columns([3, 0.5])
                     with col1:
                         is_current = st.session_state.get("current_conversation_id") == conv.get("id")
-                        button_label = f"🔹 {conv['title']}" if is_current else f"{conv['title']}"
+                        formatted_title = format_conversation_title(conv['title'])
+                        button_label = f"🔹 {formatted_title}" if is_current else formatted_title
                         if st.button(button_label, key=f"btn_{conv['id']}", use_container_width=True):
                             load_conversation(conv['id'])
                     with col2:
@@ -602,17 +609,69 @@ st.markdown("""
     }
     
     .stButton button {
-        text-align: left;
-        padding: 5px;
+        text-align: center;
+        padding: 8px 12px;
+        # margin-bottom: 5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+        word-break: break-word;
+    }
+    
+    div[data-testid="stBottomBlockContainer"] {
+        padding: 2rem 4rem !important;
+    }
+        
+    /* Tất cả button trong sidebar - base styling (được override bởi inline CSS) */
+    /* 
+    section[data-testid="stSidebar"] .stButton button {
+        background-color: white !important;
+        color: black !important;
+        border: 1px solid #e0e0e0 !important;
+        text-align: center !important;
+        padding: 8px 12px !important;
+        margin-bottom: 5px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        max-width: 100% !important;
+        width: 100% !important;
+        border-radius: 8px !important;
+        font-size: 14px !important;
+        justify-content: center !important;
+        display: flex !important;
+        align-items: center !important;
+    }
+    
+    section[data-testid="stSidebar"] .stButton button div {
+        color: black !important;
+        text-align: center !important;
+        justify-content: center !important;
+        width: 100% !important;
+        display: flex !important;
+        align-items: center !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+    
+    section[data-testid="stSidebar"] .stButton button:hover {
+        background-color: #f8f9fa !important;
+        border-color: #5BC099 !important;
+    }
+    */
+    
+    /* Basic button styling cho sidebar */
+    .stButton button {
+        text-align: center;
+        padding: 8px 12px;
         margin-bottom: 5px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-    }
-    
-    button[data-testid="baseButton-secondary"]:has(div:contains("🔹")) {
-        background-color: #e6f3ff !important;
-        font-weight: bold;
+        max-width: 100%;
+        word-break: break-word;
     }
     
     .stTooltipContent {
