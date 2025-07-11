@@ -622,6 +622,109 @@ st.markdown("""
     div[data-testid="stBottomBlockContainer"] {
         padding: 2rem 4rem !important;
     }
+    
+    /* Chat container với scroll */
+    div[data-testid="stMainBlockContainer"] {
+        height: calc(100vh - 120px) !important; /* Trừ đi chiều cao input và padding */
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        display: flex !important;
+        flex-direction: column !important;
+        scrollbar-width: thin !important; /* Firefox */
+        scrollbar-color: rgba(91, 192, 153, 0.7) rgba(91, 192, 153, 0.1) !important; /* Firefox */
+    }
+    
+    /* Chat messages container */
+    .main > div:first-child {
+        flex: 1 !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        max-height: calc(100vh - 200px) !important;
+        padding-bottom: 1rem !important;
+    }
+    
+    /* Input container cố định ở dưới */
+    div[data-testid="stBottomBlockContainer"] {
+        position: sticky !important;
+        bottom: 0 !important;
+        background: inherit !important;
+        z-index: 10 !important;
+        border-top: 1px solid rgba(0,0,0,0.05) !important;
+        padding-top: 1rem !important;
+    }
+    
+    /* Custom scrollbar cho chat area */
+    div[data-testid="stMainBlockContainer"]::-webkit-scrollbar {
+        width: 10px;
+    }
+    
+    div[data-testid="stMainBlockContainer"]::-webkit-scrollbar-track {
+        background: rgba(91, 192, 153, 0.1);
+        border-radius: 5px;
+        margin: 2px;
+    }
+    
+    div[data-testid="stMainBlockContainer"]::-webkit-scrollbar-thumb {
+        background: rgba(91, 192, 153, 0.7);
+        border-radius: 5px;
+        border: 1px solid rgba(91, 192, 153, 0.3);
+    }
+    
+    div[data-testid="stMainBlockContainer"]::-webkit-scrollbar-thumb:hover {
+        background: rgba(91, 192, 153, 0.9);
+        border: 1px solid rgba(91, 192, 153, 0.5);
+    }
+    
+    div[data-testid="stMainBlockContainer"]::-webkit-scrollbar-thumb:active {
+        background: #5BC099;
+    }
+    
+    /* Custom scrollbar cho các element khác có thể scroll */
+    .main::-webkit-scrollbar {
+        width: 10px;
+    }
+    
+    .main::-webkit-scrollbar-track {
+        background: rgba(91, 192, 153, 0.1);
+        border-radius: 5px;
+    }
+    
+    .main::-webkit-scrollbar-thumb {
+        background: rgba(91, 192, 153, 0.7);
+        border-radius: 5px;
+        border: 1px solid rgba(91, 192, 153, 0.3);
+    }
+    
+    .main::-webkit-scrollbar-thumb:hover {
+        background: rgba(91, 192, 153, 0.9);
+    }
+    
+    /* Đảm bảo scrollbar luôn hiển thị */
+    div[data-testid="stMainBlockContainer"] {
+        scrollbar-gutter: stable !important;
+    }
+    
+    /* Animation cho scrollbar */
+    div[data-testid="stMainBlockContainer"]::-webkit-scrollbar-thumb {
+        transition: background-color 0.2s ease !important;
+    }
+    
+    /* Hiển thị scrollbar khi scroll */
+    div[data-testid="stMainBlockContainer"]:hover::-webkit-scrollbar-thumb {
+        background: rgba(91, 192, 153, 0.8) !important;
+    }
+    
+    /* Container scroll indicator */
+    .scroll-indicator {
+        position: fixed;
+        right: 10px;
+        top: 50%;
+        width: 4px;
+        height: 50px;
+        background: rgba(91, 192, 153, 0.3);
+        border-radius: 2px;
+        z-index: 1000;
+    }
         
     /* Tất cả button trong sidebar - base styling (được override bởi inline CSS) */
     /* 
