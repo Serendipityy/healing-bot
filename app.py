@@ -614,6 +614,14 @@ st.markdown("""
         background-color: #e6f3ff !important;
         font-weight: bold;
     }
+    
+    .stTooltipContent {
+        background-color: #effbf6 !important;
+        color: white !important;
+        border-radius: 8px !important;
+        font-size: 12px !important;
+        padding: 8px 12px !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
