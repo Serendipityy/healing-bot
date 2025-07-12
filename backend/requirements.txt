@@ -1,0 +1,13 @@
+# Backend requirements
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+python-multipart==0.0.6
+
+# Existing dependencies
+langchain==0.1.20
+langchain-qdrant==0.1.1
+qdrant-client==1.6.9
+python-dotenv==1.0.0
+
+# Add any other existing dependencies from your original requirements.txt

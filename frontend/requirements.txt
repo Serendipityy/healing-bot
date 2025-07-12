@@ -1,0 +1,6 @@
+# Frontend requirements
+streamlit==1.28.2
+requests==2.31.0
+
+# Existing dependencies (if needed in frontend)
+python-dotenv==1.0.0

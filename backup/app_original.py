@@ -1,0 +1,903 @@
+import asyncio
+import base64
+import datetime
+import os
+import random
+import re
+import time
+import uuid
+
+import grpc.experimental.aio as grpc_aio
+import nest_asyncio
+import streamlit as st
+from dotenv import load_dotenv
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors.chain_filter import \
+    LLMChainFilter
+from langchain_qdrant import Qdrant, QdrantVectorStore
+from qdrant_client import QdrantClient
+
+from chat_storage import ChatStorage
+from ragbase.chain import ask_question, create_chain
+from ragbase.config import Config
+from ragbase.hyde import QueryTransformationHyDE
+from ragbase.ingestor import Ingestor
+from ragbase.model import create_embeddings, create_llm, create_reranker
+from ragbase.retriever import create_hybrid_retriever, create_optimized_retriever
+from ragbase.session_history import get_session_history, add_message_to_history, load_history_from_db
+from ragbase.utils import (load_documents_from_excel,
+                           load_summary_documents_from_excel)
+
+# grpc_aio.init_grpc_aio()
+load_dotenv()
+
+LOADING_MESSAGES = [
+    "Please wait...",
+]
+
+client = QdrantClient(host="localhost", port=6333, timeout=300)
+
+# Initialize chat storage with SQLite
+@st.cache_resource(show_spinner=False)
+def get_chat_storage():
+    db_path = "chat_history.db"
+    return ChatStorage(db_file=db_path)
+
+# Cache HyDE instance to avoid re-creating it
+@st.cache_resource(show_spinner=False)
+def get_hyde_transformer():
+    return QueryTransformationHyDE()
+
+# Cache embedding model to avoid reloading
+@st.cache_resource(show_spinner=False)
+def get_embedding_model():
+    return create_embeddings()
+
+
+@st.cache_resource(show_spinner=False)
+def build_qa_chain():
+    start = time.time()
+    
+    embedding_model = get_embedding_model()  # Use cached embedding model
+    
+    # Load collection "documents" - NO EXCEL LOADING NEEDED!
+    vector_store = QdrantVectorStore(
+        client=client,
+        collection_name="documents", 
+        embedding=embedding_model
+    )
+
+    # Load collection "summary" - NO EXCEL LOADING NEEDED!
+    summary_vector_store = QdrantVectorStore(
+        client=client,
+        collection_name="summary",
+        embedding=embedding_model
+    )
+    
+    llm = create_llm()
+
+    # Create optimized retrievers without loading Excel files
+    retriever_full = create_optimized_retriever(llm, vector_store, "full")
+    retriever_summary = create_optimized_retriever(llm, summary_vector_store, "summary")
+
+    # Apply reranker or chain filter if needed
+    if Config.Retriever.USE_RERANKER:
+        retriever_full = ContextualCompressionRetriever(
+            base_compressor=create_reranker(), base_retriever=retriever_full
+        )
+        retriever_summary = ContextualCompressionRetriever(
+            base_compressor=create_reranker(), base_retriever=retriever_summary
+        )
+
+    if Config.Retriever.USE_CHAIN_FILTER:
+        retriever_full = ContextualCompressionRetriever(
+            base_compressor=LLMChainFilter.from_llm(llm), base_retriever=retriever_full
+        )
+        retriever_summary = ContextualCompressionRetriever(
+            base_compressor=LLMChainFilter.from_llm(llm), base_retriever=retriever_summary
+        )
+
+    end = time.time()
+    print(f"⚡ Chain initialized in: {end - start:.2f} seconds")
+    
+    return create_chain(llm, retriever_full, retriever_summary)
+
+# Utility function to run async functions in Streamlit
+@st.cache_resource
+def get_async_loop():
+    try:
+        # Check if there's a running loop first
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop, create a new one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        return loop
+    except Exception as e:
+        # Fall back to a new loop if any issues
+        st.warning(f"Event loop error (handled): {e}")
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop
+
+def run_async_in_streamlit(async_func, *args, **kwargs):
+    # Create a future in the current event loop
+    loop = get_async_loop()
+    try:
+        return loop.run_until_complete(async_func(*args, **kwargs))
+    except RuntimeError as e:
+        if "This event loop is already running" in str(e):
+            # We're in a running event loop already, create a new task
+            st.warning("Already in an event loop, creating a task instead")
+            return asyncio.create_task(async_func(*args, **kwargs))
+        else:
+            raise
+
+async def ask_chain(question: str, chain):
+    assistant = st.chat_message(
+        "assistant", avatar=str(Config.Path.IMAGES_DIR / "bot-avatar-1.jpg")
+    )
+    with assistant:
+        message_placeholder = st.empty()
+        # Tạo hiệu ứng loading với dấu chấm nhảy
+        message_placeholder.markdown("""
+        <div style="display: flex; align-items: center; padding: 10px;">
+            <div class="loading-dots">
+                <span class="dot"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+            </div>
+        </div>
+        <style>
+        .loading-dots {
+            display: inline-flex;
+            align-items: center;
+        }
+        .dot {
+            width: 4px;
+            height: 4px;
+            margin: 0 2px;
+            background-color: #5BC099;
+            border-radius: 50%;
+            animation: loading 1.4s infinite ease-in-out;
+        }
+        .dot:nth-child(1) { animation-delay: -0.32s; }
+        .dot:nth-child(2) { animation-delay: -0.16s; }
+        .dot:nth-child(3) { animation-delay: 0s; }
+        
+        @keyframes loading {
+            0%, 80%, 100% {
+                transform: scale(0);
+                opacity: 0.5;
+            }
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        full_response = ""
+        documents = []
+        
+        # Start timing
+        start_time = time.time()
+        
+        original_question = question
+        
+        # HyDE transformation with timing (with fast mode for simple queries)
+        hyde_start = time.time()
+        hyde_transformer = get_hyde_transformer()
+        question_transformed = hyde_transformer.transform_query(original_question, fast_mode=True)
+        hyde_end = time.time()
+        print(f"⚡ HyDE took: {hyde_end - hyde_start:.2f}s")
+        
+        # Sử dụng conversation_id từ session state
+        conversation_id = st.session_state.get("current_conversation_id")
+        if conversation_id is None:
+            # Nếu không có conversation_id, tạo một ID tạm thời cho session này
+            conversation_id = "temp_session"
+        
+        # Update status based on process
+        # if hyde_end - hyde_start < 0.5:
+        #     message_placeholder.status("🔍 Đang tìm kiếm thông tin...", state="running")
+        # else:
+        #     message_placeholder.status("🧠 Đang phân tích câu hỏi...", state="running")
+        #     time.sleep(0.5)  # Brief pause to show status
+        #     message_placeholder.status("🔍 Đang tìm kiếm thông tin...", state="running")
+        
+        # Stream response with improved display
+        chunk_count = 0
+        response_started = False
+        
+        async for event in ask_question(chain, question_transformed, session_id=conversation_id):
+            if isinstance(event, str) and event.strip():
+                chunk_count += 1
+                full_response += event
+                
+                # Start showing response after first meaningful chunk
+                if not response_started and len(full_response.strip()) > 10:
+                    response_started = True
+                    message_placeholder.empty()
+                
+                # Update display every few chunks or when we have substantial content
+                if response_started and (chunk_count % 3 == 0 or len(event) > 20):
+                    # Remove thinking tags before displaying
+                    display_response = re.sub(r"<think>.*?</think>", "", full_response, flags=re.DOTALL)
+                    message_placeholder.markdown(display_response + "▌")  # Cursor effect
+                elif not response_started:
+                    # Hiển thị loading với dấu chấm nhảy khi đang xử lý
+                    message_placeholder.markdown("""
+                    <div style="display: flex; align-items: center; padding: 10px;">
+                        <div class="loading-dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                    </div>
+                    <style>
+                    .loading-dots {
+                        display: inline-flex;
+                        align-items: center;
+                    }
+                    .dot {
+                        width: 4px;
+                        height: 4px;
+                        margin: 0 2px;
+                        background-color: #5BC099;
+                        border-radius: 50%;
+                        animation: loading 1.4s infinite ease-in-out;
+                    }
+                    .dot:nth-child(1) { animation-delay: -0.32s; }
+                    .dot:nth-child(2) { animation-delay: -0.16s; }
+                    .dot:nth-child(3) { animation-delay: 0s; }
+                    
+                    @keyframes loading {
+                        0%, 80%, 100% {
+                            transform: scale(0);
+                            opacity: 0.5;
+                        }
+                        40% {
+                            transform: scale(1);
+                            opacity: 1;
+                        }
+                    }
+                    </style>
+                    """, unsafe_allow_html=True)
+                    
+            if isinstance(event, list):
+                documents.extend(event)
+
+        # Final cleanup and display
+        end_time = time.time()
+        total_time = end_time - start_time
+        
+        # Remove thinking tags from final response
+        full_response = re.sub(r"<think>.*?</think>", "", full_response, flags=re.DOTALL)
+        
+        # Final display without cursor
+        message_placeholder.markdown(full_response)
+        
+        print(f"🏁 Total response time: {total_time:.2f}s")
+        
+        # Show sources
+        # if documents:
+        #     for i, doc in enumerate(documents[:3]):  # Limit to top 3 sources
+        #         with st.expander(f"Source #{i+1}", expanded=False):
+        #             st.write(doc.page_content[:500] + "..." if len(doc.page_content) > 500 else doc.page_content)
+
+    # Save to session and database
+    current_time = datetime.datetime.now().strftime("%H:%M")
+    st.session_state.messages.append({
+        "role": "assistant", 
+        "content": full_response,
+        "timestamp": current_time
+    })
+    
+    # Chỉ lưu vào database nếu có conversation_id thật (không phải temp)
+    actual_conversation_id = st.session_state.get("current_conversation_id")
+    if actual_conversation_id and actual_conversation_id != "temp_session":
+        add_message_to_history(actual_conversation_id, "assistant", full_response)
+
+
+def show_message_history():
+    for message in st.session_state.messages:
+        role = message["role"]
+        avatar_path = (
+            Config.Path.IMAGES_DIR / "bot-avatar-1.jpg"
+            if role == "assistant"
+            else Config.Path.IMAGES_DIR / "user-avatar.jfif"
+        )
+        with st.chat_message(role, avatar=str(avatar_path)):
+            st.markdown(message["content"])
+
+def show_chat_input(chain):
+    if prompt := st.chat_input("Hãy chia sẻ tâm sự của bạn..."):
+        current_time = datetime.datetime.now().strftime("%H:%M")
+        
+        # Kiểm tra xem đã có cuộc trò chuyện chưa, nếu chưa thì tạo mới
+        if st.session_state.get("current_conversation_id") is None:
+            storage = get_chat_storage()
+            conversation_id = storage.create_conversation()
+            st.session_state.current_conversation_id = conversation_id
+            
+            # Thêm tin nhắn chào hỏi từ assistant trước khi user chat
+            initial_message = {
+                "role": "assistant",
+                "content": "Xin chào! Mình ở đây sẵn sàng lắng nghe và chia sẻ cùng bạn. Bạn đang nghĩ gì vậy?",
+                "timestamp": current_time
+            }
+            st.session_state.messages = [initial_message]
+            storage.save_message(conversation_id, "assistant", initial_message["content"], current_time)
+        
+        # Lưu tin nhắn user vào UI
+        st.session_state.messages.append({
+            "role": "user", 
+            "content": prompt,
+            "timestamp": current_time
+        })
+        
+        # Hiển thị tin nhắn user
+        with st.chat_message(
+            "user",
+            avatar=str(Config.Path.IMAGES_DIR / "user-avatar.jfif"),
+        ):
+            st.markdown(prompt)
+        
+        # Lưu vào database và đồng bộ với chain history
+        conversation_id = st.session_state.get("current_conversation_id")
+        add_message_to_history(conversation_id, "user", prompt)
+        
+        # Cập nhật title nếu đây là tin nhắn đầu tiên của user
+        if len([msg for msg in st.session_state.messages if msg["role"] == "user"]) == 1:
+            storage = get_chat_storage()
+            title = format_conversation_title(prompt)
+            storage.update_conversation_title(conversation_id, title)
+        
+        try:
+            # Try using our improved async handler
+            run_async_in_streamlit(ask_chain, prompt, chain)
+        except RuntimeError as e:
+            st.error(f"Runtime error (handled): {e}")
+            # Fall back to a synchronous approach if needed
+            full_response = "Xin lỗi, mình đang gặp vấn đề kỹ thuật. Bạn có thể thử lại không?"
+            with st.chat_message(
+                "assistant", avatar=str(Config.Path.IMAGES_DIR / "bot-avatar-1.jpg")
+            ):
+                st.markdown(full_response)
+            
+            # Save the message to history
+            current_time = datetime.datetime.now().strftime("%H:%M")
+            st.session_state.messages.append({
+                "role": "assistant", 
+                "content": full_response,
+                "timestamp": current_time
+            })
+            
+            # Lưu vào database
+            add_message_to_history(conversation_id, "assistant", full_response)
+
+def load_conversation(conversation_id):
+    """Tải một cuộc trò chuyện từ database"""
+    storage = get_chat_storage()
+    messages = storage.get_conversation_messages(conversation_id)
+    
+    if messages:
+        st.session_state.messages = messages
+        st.session_state.current_conversation_id = conversation_id
+        
+        # Load lịch sử vào chain history
+        load_history_from_db(conversation_id)
+        
+        st.rerun()
+    else:
+        st.error("Không thể tải cuộc trò chuyện này")
+
+def create_new_conversation():
+    """Tạo cuộc trò chuyện mới"""
+    storage = get_chat_storage()
+    conversation_id = storage.create_conversation()
+    
+    current_time = datetime.datetime.now().strftime("%H:%M")
+    initial_message = {
+        "role": "assistant",
+        "content": "Xin chào! Mình ở đây sẵn sàng lắng nghe và chia sẻ cùng bạn. Bạn đang nghĩ gì vậy?",
+        "timestamp": current_time
+    }
+    
+    st.session_state.messages = [initial_message]
+    st.session_state.current_conversation_id = conversation_id
+    
+    # Lưu tin nhắn chào hỏi vào database
+    storage.save_message(conversation_id, "assistant", initial_message["content"], current_time)
+    
+    st.rerun()
+
+def delete_conversation(conversation_id):
+    """Xóa một cuộc trò chuyện"""
+    storage = get_chat_storage()
+    storage.delete_conversation(conversation_id)
+    
+    if st.session_state.get("current_conversation_id") == conversation_id:
+        # Reset về trạng thái không có cuộc trò chuyện thay vì tạo mới
+        st.session_state.messages = []
+        st.session_state.current_conversation_id = None
+        st.rerun()
+    else:
+        st.rerun()
+
+
+def get_base64_of_image(image_path):
+    """Chuyển đổi hình ảnh thành chuỗi base64"""
+    with open(image_path, "rb") as image_file:
+        encoded_string = base64.b64encode(image_file.read()).decode()
+    return encoded_string
+
+def format_conversation_title(text, max_length=30):
+    """Format conversation title với độ dài tối đa và thêm ... nếu cần"""
+    if len(text) <= max_length:
+        return text
+    return text[:max_length].rstrip() + "..."
+
+def create_sidebar():
+    with st.sidebar:
+        if st.button("✚ Cuộc trò chuyện mới", use_container_width=True, key="new_chat_btn"):
+            create_new_conversation()
+        
+        sidebar_bg_path = str(Config.Path.IMAGES_DIR / "sidebar-bg-1.jpg") 
+        
+        if os.path.exists(sidebar_bg_path):
+            sidebar_bg = get_base64_of_image(sidebar_bg_path)
+            st.markdown(
+                f"""
+                <style>
+                [data-testid="stSidebar"] {{
+                    background-image: url("data:image/jpg;base64,{sidebar_bg}");
+                    background-size: cover;
+                    background-position: center;
+                    background-repeat: no-repeat;
+                }}
+                
+                </style>
+                """,
+                unsafe_allow_html=True
+            )
+        st.image(str(Config.Path.IMAGES_DIR / "sidebar-image-1-new.jpg"))
+        
+       
+        st.markdown("### Lịch sử trò chuyện")
+        
+        storage = get_chat_storage()
+        all_conversations = storage.get_all_conversations()
+        
+        if all_conversations:
+            for conv in all_conversations:
+                with st.container():
+                    col1, col2 = st.columns([3, 0.5])
+                    with col1:
+                        is_current = st.session_state.get("current_conversation_id") == conv.get("id")
+                        formatted_title = format_conversation_title(conv['title'])
+                        button_label = f"🔹 {formatted_title}" if is_current else formatted_title
+                        if st.button(button_label, key=f"btn_{conv['id']}", use_container_width=True):
+                            load_conversation(conv['id'])
+                    with col2:
+                        if st.button("🗑️", key=f"del_{conv['id']}", help="Xóa cuộc trò chuyện này"):
+                            delete_conversation(conv['id'])
+        else:
+            st.caption("Chưa có cuộc trò chuyện nào")
+
+# Main app
+st.set_page_config(
+    page_title="Healing Bot", 
+    page_icon="🤗",
+    layout="wide"  
+)
+
+main_bg_path = str(Config.Path.IMAGES_DIR / "sidebar-bg-1.jpg")
+if os.path.exists(main_bg_path):
+    main_bg = get_base64_of_image(main_bg_path)
+    st.markdown(f"""
+        <style>
+        div[data-testid="stAppViewContainer"] {{
+            background-image: url("data:image/jpg;base64,{main_bg}");
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+        }}
+        .st-emotion-cache-1atd71m {{
+            background-image: url("data:image/jpg;base64,{main_bg}");
+        }}
+        </style>
+    """, unsafe_allow_html=True)
+    
+st.markdown("""
+<style>
+    header[data-testid="stHeader"] {
+        display: none !important;
+    }
+    
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        width: 25% !important;
+        padding: 1rem;
+        box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+    }
+    
+    div[data-testid="stSidebarHeader"] {
+        padding: 0 !important;
+    }
+    
+    button[data-testid="StyledFullScreenButton"] {
+        display: none;
+    }
+    
+    button[data-testid="baseButton-headerNoPadding"] {
+        color: black !important;
+    }
+    
+    /* Container */
+    div[data-testid="stAppViewContainer"] {
+        # background-color: white !important;
+    }
+    
+    div[data-testid="stMainBlockContainer"] {
+        padding: 0 4rem !important;
+    }
+    
+    /* avatar */
+    .st-emotion-cache-p4micv {
+        width: 2.75rem;
+        height: 2.75rem;
+        border-radius: 50%;
+    }
+    
+    .st-emotion-cache-1htpkgr {
+        background-color: unset !important;
+    }
+    
+        
+    .st-emotion-cache-janbn0 {
+        background-color: #d7e6e4 !important;
+    }
+    
+    div[data-testid*="stChatMessage"] {
+        align-items: center !important;
+    }
+    
+    div[data-testid*="stChatMessageContent"] {
+        padding: 0 !important;
+    }
+    
+    .st-emotion-cache-1gwvy71 {
+        padding: 0;
+    }
+    
+    div[data-testid*="stChatMessageContent user"] {
+        background-color: #e6f3ff;
+    }
+    
+    div[data-testid*="stChatMessageContent assistant"] {
+        background-color: #f0f7ff;
+    }
+    
+    div[data-testid="stMarkdownContainer"] {
+        color: black !important;
+    }
+   
+    h1, h3 {
+        color: black !important;
+    } 
+    
+   
+    .st-emotion-cache-1lm6gnd {
+        display: none !important;
+    }
+    .st-emotion-cache-hu32sh {
+        background: unset !important;
+    }
+    
+    
+    button[data-testid="chatSubmitButton"] {
+        border-radius: 50%;
+        position: relative !important;
+        bottom: 0.5rem !important;
+        flex-shrink: 0 !important;
+        align-self: flex-end !important;
+       
+    }
+    
+    .st-emotion-cache-1f3w014 {
+        fill: #5BC099;
+    }
+    
+    button[data-testid="stChatInputSubmitButton"] .st-emotion-cache-1f3w014 {
+        fill: white;  
+    }
+    
+    button[data-testid="stChatInputSubmitButton"] {
+        background-color: #5BC099 !important; /* Màu nền của nút */
+        border-radius: 50% !important; /* Bo góc */
+        border: none !important;
+        padding: 0.5rem;
+        transform: translate(-0.5rem, 0);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    
+    
+    .stButton button:hover {
+        background-color: #f0f7ff !important;
+    }
+    
+    .stChatInput > div:first-child {
+        background: white !important;
+        # padding: 1.5rem 1rem;
+        height: 3.5rem !important;
+        min-height: 3.5rem !important;
+        max-height: 3.5rem !important;
+        display: flex !important;
+        align-items: center !important;
+        box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+          transition: background-color 0.3s ease, box-shadow 0.3s ease; 
+        border: 2px solid #5BC099 !important;
+
+    }
+    .stChatInput > div:first-child:hover,
+    .stChatInput > div:first-child:focus-within{
+        box-shadow: 0px 0px 8px rgba(91, 192, 153, 0.5); 
+    }
+    
+    .st-bq {
+        padding-right: 0;
+        flex-grow: 1;
+    }
+    .st-emotion-cache-sey4o0 {
+        align-items: center !important;
+        height: 3.5rem !important;
+        position: unset;
+    }
+    
+    /* Fixed send button position */
+    button[data-testid="chatSubmitButton"] {
+        border-radius: 50%;
+        flex-shrink: 0 !important;
+        align-self: center !important;
+    }
+    textarea {
+        color: black !important;
+        background: white !important;
+        caret-color: black !important;
+        resize: none !important;
+        height: 2.5rem !important;
+        min-height: 2.5rem !important;
+        max-height: 2.5rem !important;
+        overflow-y: auto !important;
+    }
+    
+    .stButton button:first-of-type {
+        background-color: #f0f7ff;
+        border: 1px solid #ddd;
+        font-weight: bold;
+        # margin-bottom: 10px;
+    }
+    
+    .stButton button {
+        text-align: center;
+        padding: 8px 12px;
+        # margin-bottom: 5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+        word-break: break-word;
+    }
+    
+    div[data-testid="stBottomBlockContainer"] {
+        padding: 2rem 4rem !important;
+    }
+    
+    /* Chat container với scroll */
+    div[data-testid="stMainBlockContainer"] {
+        height: calc(100vh - 120px) !important; /* Trừ đi chiều cao input và padding */
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        display: flex !important;
+        flex-direction: column !important;
+        scrollbar-width: thin !important; /* Firefox */
+        scrollbar-color: rgba(91, 192, 153, 0.7) rgba(91, 192, 153, 0.1) !important; /* Firefox */
+    }
+    
+    /* Chat messages container */
+    .main > div:first-child {
+        flex: 1 !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        max-height: calc(100vh - 200px) !important;
+        padding-bottom: 1rem !important;
+    }
+    
+    /* Input container cố định ở dưới */
+    div[data-testid="stBottomBlockContainer"] {
+        position: sticky !important;
+        bottom: 0 !important;
+        background: inherit !important;
+        z-index: 10 !important;
+        border-top: 1px solid rgba(0,0,0,0.05) !important;
+        padding-top: 1rem !important;
+    }
+    
+    /* Custom scrollbar cho chat area */
+    div[data-testid="stMainBlockContainer"]::-webkit-scrollbar {
+        width: 10px;
+    }
+    
+    div[data-testid="stMainBlockContainer"]::-webkit-scrollbar-track {
+        background: rgba(91, 192, 153, 0.1);
+        border-radius: 5px;
+        margin: 2px;
+    }
+    
+    div[data-testid="stMainBlockContainer"]::-webkit-scrollbar-thumb {
+        background: rgba(91, 192, 153, 0.7);
+        border-radius: 5px;
+        border: 1px solid rgba(91, 192, 153, 0.3);
+    }
+    
+    div[data-testid="stMainBlockContainer"]::-webkit-scrollbar-thumb:hover {
+        background: rgba(91, 192, 153, 0.9);
+        border: 1px solid rgba(91, 192, 153, 0.5);
+    }
+    
+    div[data-testid="stMainBlockContainer"]::-webkit-scrollbar-thumb:active {
+        background: #5BC099;
+    }
+    
+    /* Custom scrollbar cho các element khác có thể scroll */
+    .main::-webkit-scrollbar {
+        width: 10px;
+    }
+    
+    .main::-webkit-scrollbar-track {
+        background: rgba(91, 192, 153, 0.1);
+        border-radius: 5px;
+    }
+    
+    .main::-webkit-scrollbar-thumb {
+        background: rgba(91, 192, 153, 0.7);
+        border-radius: 5px;
+        border: 1px solid rgba(91, 192, 153, 0.3);
+    }
+    
+    .main::-webkit-scrollbar-thumb:hover {
+        background: rgba(91, 192, 153, 0.9);
+    }
+    
+    /* Đảm bảo scrollbar luôn hiển thị */
+    div[data-testid="stMainBlockContainer"] {
+        scrollbar-gutter: stable !important;
+    }
+    
+    /* Animation cho scrollbar */
+    div[data-testid="stMainBlockContainer"]::-webkit-scrollbar-thumb {
+        transition: background-color 0.2s ease !important;
+    }
+    
+    /* Hiển thị scrollbar khi scroll */
+    div[data-testid="stMainBlockContainer"]:hover::-webkit-scrollbar-thumb {
+        background: rgba(91, 192, 153, 0.8) !important;
+    }
+    
+    /* Container scroll indicator */
+    .scroll-indicator {
+        position: fixed;
+        right: 10px;
+        top: 50%;
+        width: 4px;
+        height: 50px;
+        background: rgba(91, 192, 153, 0.3);
+        border-radius: 2px;
+        z-index: 1000;
+    }
+        
+    /* Tất cả button trong sidebar - base styling (được override bởi inline CSS) */
+    /* 
+    section[data-testid="stSidebar"] .stButton button {
+        background-color: white !important;
+        color: black !important;
+        border: 1px solid #e0e0e0 !important;
+        text-align: center !important;
+        padding: 8px 12px !important;
+        margin-bottom: 5px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        max-width: 100% !important;
+        width: 100% !important;
+        border-radius: 8px !important;
+        font-size: 14px !important;
+        justify-content: center !important;
+        display: flex !important;
+        align-items: center !important;
+    }
+    
+    section[data-testid="stSidebar"] .stButton button div {
+        color: black !important;
+        text-align: center !important;
+        justify-content: center !important;
+        width: 100% !important;
+        display: flex !important;
+        align-items: center !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+    
+    section[data-testid="stSidebar"] .stButton button:hover {
+        background-color: #f8f9fa !important;
+        border-color: #5BC099 !important;
+    }
+    */
+    
+    /* Basic button styling cho sidebar */
+    .stButton button {
+        text-align: center;
+        padding: 8px 12px;
+        margin-bottom: 5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+        word-break: break-word;
+    }
+    
+    .stTooltipContent {
+        background-color: #effbf6 !important;
+        color: white !important;
+        border-radius: 8px !important;
+        font-size: 12px !important;
+        padding: 8px 12px !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+if "messages" not in st.session_state:
+    # Kiểm tra xem có cuộc trò chuyện nào đang mở không
+    if "current_conversation_id" not in st.session_state:
+        # Chỉ khởi tạo session state, không tạo cuộc trò chuyện ngay
+        st.session_state.messages = []
+        st.session_state.current_conversation_id = None
+    else:
+        # Load cuộc trò chuyện hiện tại nếu có
+        conversation_id = st.session_state.current_conversation_id
+        storage = get_chat_storage()
+        messages = storage.get_conversation_messages(conversation_id)
+        if messages:
+            st.session_state.messages = messages
+        else:
+            # Nếu conversation_id tồn tại nhưng không có tin nhắn, reset về trạng thái trống
+            st.session_state.messages = []
+            st.session_state.current_conversation_id = None
+    
+create_sidebar()
+
+chat_container = st.container()
+
+with chat_container:
+    with st.spinner("Starting..."):
+        chain = build_qa_chain()
+    
+    # Chỉ hiển thị tin nhắn nếu có cuộc trò chuyện
+    if st.session_state.get("current_conversation_id") is not None and st.session_state.messages:
+        show_message_history()
+    else:
+        # Hiển thị tin nhắn chào hỏi mặc định khi chưa có cuộc trò chuyện
+        with st.chat_message(
+            "assistant", 
+            avatar=str(Config.Path.IMAGES_DIR / "bot-avatar-1.jpg")
+        ):
+            st.markdown("Xin chào! Mình ở đây sẵn sàng lắng nghe và chia sẻ cùng bạn. Bạn đang nghĩ gì vậy?")
+
+show_chat_input(chain)

@@ -163,4 +163,6 @@ cython_debug/
 
 .DS_Store
 docs-db
-tmp
+
+
+data/ragas_score
