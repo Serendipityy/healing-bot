@@ -140,7 +140,44 @@ async def ask_chain(question: str, chain):
     )
     with assistant:
         message_placeholder = st.empty()
-        message_placeholder.status("🤔 Đang suy nghĩ...", state="running")
+        # Tạo hiệu ứng loading với dấu chấm nhảy
+        message_placeholder.markdown("""
+        <div style="display: flex; align-items: center; padding: 10px;">
+            <div class="loading-dots">
+                <span class="dot"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+            </div>
+        </div>
+        <style>
+        .loading-dots {
+            display: inline-flex;
+            align-items: center;
+        }
+        .dot {
+            width: 4px;
+            height: 4px;
+            margin: 0 2px;
+            background-color: #5BC099;
+            border-radius: 50%;
+            animation: loading 1.4s infinite ease-in-out;
+        }
+        .dot:nth-child(1) { animation-delay: -0.32s; }
+        .dot:nth-child(2) { animation-delay: -0.16s; }
+        .dot:nth-child(3) { animation-delay: 0s; }
+        
+        @keyframes loading {
+            0%, 80%, 100% {
+                transform: scale(0);
+                opacity: 0.5;
+            }
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+        </style>
+        """, unsafe_allow_html=True)
         
         full_response = ""
         documents = []
@@ -164,12 +201,12 @@ async def ask_chain(question: str, chain):
             conversation_id = "temp_session"
         
         # Update status based on process
-        if hyde_end - hyde_start < 0.5:
-            message_placeholder.status("🔍 Đang tìm kiếm thông tin...", state="running")
-        else:
-            message_placeholder.status("🧠 Đang phân tích câu hỏi...", state="running")
-            time.sleep(0.5)  # Brief pause to show status
-            message_placeholder.status("🔍 Đang tìm kiếm thông tin...", state="running")
+        # if hyde_end - hyde_start < 0.5:
+        #     message_placeholder.status("🔍 Đang tìm kiếm thông tin...", state="running")
+        # else:
+        #     message_placeholder.status("🧠 Đang phân tích câu hỏi...", state="running")
+        #     time.sleep(0.5)  # Brief pause to show status
+        #     message_placeholder.status("🔍 Đang tìm kiếm thông tin...", state="running")
         
         # Stream response with improved display
         chunk_count = 0
@@ -190,6 +227,45 @@ async def ask_chain(question: str, chain):
                     # Remove thinking tags before displaying
                     display_response = re.sub(r"<think>.*?</think>", "", full_response, flags=re.DOTALL)
                     message_placeholder.markdown(display_response + "▌")  # Cursor effect
+                elif not response_started:
+                    # Hiển thị loading với dấu chấm nhảy khi đang xử lý
+                    message_placeholder.markdown("""
+                    <div style="display: flex; align-items: center; padding: 10px;">
+                        <div class="loading-dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                    </div>
+                    <style>
+                    .loading-dots {
+                        display: inline-flex;
+                        align-items: center;
+                    }
+                    .dot {
+                        width: 4px;
+                        height: 4px;
+                        margin: 0 2px;
+                        background-color: #5BC099;
+                        border-radius: 50%;
+                        animation: loading 1.4s infinite ease-in-out;
+                    }
+                    .dot:nth-child(1) { animation-delay: -0.32s; }
+                    .dot:nth-child(2) { animation-delay: -0.16s; }
+                    .dot:nth-child(3) { animation-delay: 0s; }
+                    
+                    @keyframes loading {
+                        0%, 80%, 100% {
+                            transform: scale(0);
+                            opacity: 0.5;
+                        }
+                        40% {
+                            transform: scale(1);
+                            opacity: 1;
+                        }
+                    }
+                    </style>
+                    """, unsafe_allow_html=True)
                     
             if isinstance(event, list):
                 documents.extend(event)
