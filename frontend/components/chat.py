@@ -1,5 +1,5 @@
 """
-Chat UI components for handling user interactions and message display.
+Chat components for handling user interactions and message display.
 """
 
 import datetime

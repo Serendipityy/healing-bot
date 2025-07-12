@@ -10,19 +10,23 @@ docker run -d --name qdrant -p 6333:6333 qdrant/qdrant:latest
 # Hoặc nếu đã có Qdrant chạy ở localhost:6333, bỏ qua bước này
 ```
 
-### Bước 2: Chạy Backend (Terminal 1)
+### Bước 2: Cài đặt dependencies
+```cmd
+# Cài đặt tất cả dependencies
+pip install -r requirements.txt
+```
+
+### Bước 3: Chạy Backend (Terminal 1)
 ```cmd
 cd backend
-pip install -r requirements.txt
 python main.py
 ```
 
 **⏳ Đợi thông báo: "🎉 Ready to process chat requests!"**
 
-### Bước 3: Chạy Frontend (Terminal 2) 
+### Bước 4: Chạy Frontend (Terminal 2) 
 ```cmd
 cd frontend
-pip install -r requirements.txt
 streamlit run app.py
 ```
 

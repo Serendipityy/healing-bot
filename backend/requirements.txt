@@ -1,13 +1,6 @@
-# Backend requirements
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
-python-multipart==0.0.6
+# Healing Bot Backend Requirements
+# For backend-only deployment, install the main requirements file:
+# pip install -r ../requirements.txt
 
-# Existing dependencies
-langchain==0.1.20
-langchain-qdrant==0.1.1
-qdrant-client==1.6.9
-python-dotenv==1.0.0
-
-# Add any other existing dependencies from your original requirements.txt
+# Or use this file for backend-specific dependencies only:
+-r ../requirements.txt

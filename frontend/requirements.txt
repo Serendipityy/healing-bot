@@ -1,6 +1,6 @@
-# Frontend requirements
-streamlit==1.28.2
-requests==2.31.0
+# Healing Bot Frontend Requirements
+# For frontend-only deployment, install the main requirements file:
+# pip install -r ../requirements.txt
 
-# Existing dependencies (if needed in frontend)
-python-dotenv==1.0.0
+# Or use this file for frontend-specific dependencies only:
+-r ../requirements.txt

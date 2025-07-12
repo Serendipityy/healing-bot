@@ -1,0 +1,43 @@
+# Healing Bot - Complete Requirements
+# Unified requirements for the entire project (Backend + Frontend + RAGBase)
+
+# Core Web Frameworks
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+streamlit
+python-multipart==0.0.6
+requests==2.31.0
+pydantic==2.5.0
+
+# LangChain & AI Pipeline
+langchain
+langchain-community
+langchain-experimental
+langchain-groq
+langchain-qdrant
+langchain-google-genai
+
+# Vector Database & Embeddings
+qdrant-client
+fastembed
+sentence-transformers
+
+# Search & Ranking
+flashrank
+rank_bm25
+
+# Document Processing
+pypdfium2
+openpyxl
+
+# Configuration & Environment
+python-dotenv
+
+# Development & Testing (optional)
+pytest==7.4.0
+pytest-asyncio==0.21.1
+
+# Evaluation & Testing (RAGAS - optional)
+# ragas==0.1.0
+# datasets==2.14.6
+# pandas==2.0.3
