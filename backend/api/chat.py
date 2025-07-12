@@ -1,3 +1,9 @@
+"""
+Chat API endpoints.
+
+Provides endpoints for sending messages and streaming chat responses.
+"""
+
 import datetime
 import json
 from typing import List, Optional
@@ -5,9 +11,8 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from ..models.chat import ChatRequest, ChatResponse, StreamChunk
-from ..services.chat_service import get_chat_service
-from ..services.conversation_service import get_conversation_service
+from ..models import ChatRequest, ChatResponse, StreamChunk
+from ..services import get_chat_service, get_conversation_service
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 

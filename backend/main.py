@@ -1,3 +1,10 @@
+"""
+Healing Bot Backend - FastAPI Application
+
+Main entry point for the Healing Bot backend API server.
+Provides RESTful endpoints for chat functionality and conversation management.
+"""
+
 import sys
 import os
 
@@ -8,9 +15,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.api.chat import router as chat_router
-from backend.api.conversations import router as conversations_router
-from backend.services.chat_service import get_chat_service
+from backend.api import chat_router, conversations_router
+from backend.services import get_chat_service
 
 # Create FastAPI app
 app = FastAPI(

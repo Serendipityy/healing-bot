@@ -1,17 +1,22 @@
+"""
+Sidebar UI components for conversation history and navigation.
+"""
+
 import datetime
 import os
 
 import streamlit as st
 
-from ..utils.api_client import get_api_client, get_base64_of_image, format_conversation_title
+from ..utils import get_api_client, get_base64_of_image, format_conversation_title
 from ragbase.config import Config
+from shared import UIConstants
 
 
 def create_sidebar():
     """Create and display the sidebar with conversation history"""
     with st.sidebar:
         # New conversation button
-        if st.button("✚ Cuộc trò chuyện mới", use_container_width=True, key="new_chat_btn"):
+        if st.button(f"✚ {UIConstants.NEW_CONVERSATION_TITLE}", use_container_width=True, key="new_chat_btn"):
             create_new_conversation()
         
         # Set sidebar background
@@ -37,7 +42,7 @@ def create_sidebar():
         if os.path.exists(sidebar_image_path):
             st.image(sidebar_image_path)
         
-        st.markdown("### Lịch sử trò chuyện")
+        st.markdown(f"### {UIConstants.CONVERSATION_HISTORY_TITLE}")
         
         # Load conversations from API
         api_client = get_api_client()
@@ -95,7 +100,7 @@ def create_new_conversation():
         
         initial_message = {
             "role": "assistant",
-            "content": "Xin chào! Mình ở đây sẵn sàng lắng nghe và chia sẻ cùng bạn. Bạn đang nghĩ gì vậy?",
+            "content": UIConstants.DEFAULT_GREETING,
             "timestamp": current_time
         }
         

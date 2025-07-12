@@ -1,3 +1,7 @@
+"""
+Chat UI components for handling user interactions and message display.
+"""
+
 import datetime
 import os
 from typing import Optional
@@ -5,8 +9,9 @@ from typing import Optional
 import streamlit as st
 
 from ..styles.main import get_loading_dots_html
-from ..utils.api_client import get_api_client, format_conversation_title
+from ..utils import get_api_client, format_conversation_title
 from ragbase.config import Config
+from shared import UIConstants
 
 
 async def handle_chat_message(message: str, conversation_id: Optional[str] = None):
@@ -114,7 +119,7 @@ def show_message_history():
 
 def show_chat_input():
     """Display chat input and handle user messages"""
-    if prompt := st.chat_input("Hãy chia sẻ tâm sự của bạn..."):
+    if prompt := st.chat_input(UIConstants.CHAT_INPUT_PLACEHOLDER):
         # Check if conversation exists, create if not
         conversation_id = st.session_state.get("current_conversation_id")
         
@@ -130,7 +135,7 @@ def show_chat_input():
                 current_time = datetime.datetime.now().strftime("%H:%M")
                 initial_message = {
                     "role": "assistant",
-                    "content": "Xin chào! Mình ở đây sẵn sàng lắng nghe và chia sẻ cùng bạn. Bạn đang nghĩ gì vậy?",
+                    "content": UIConstants.DEFAULT_GREETING,
                     "timestamp": current_time
                 }
                 st.session_state.messages = [initial_message]

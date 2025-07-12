@@ -1,9 +1,13 @@
+"""
+Conversation service for managing chat conversations and message history.
+"""
+
 import datetime
 import uuid
 from typing import List, Optional
 
 from chat_storage import ChatStorage
-from ..models.chat import Conversation, Message, ConversationCreate
+from ..models import Conversation, Message, ConversationCreate
 
 
 class ConversationService:

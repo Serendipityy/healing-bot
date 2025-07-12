@@ -1,9 +1,15 @@
+"""
+Conversation API endpoints.
+
+Provides endpoints for managing conversations and conversation history.
+"""
+
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
 
-from ..models.chat import Conversation, ConversationCreate
-from ..services.conversation_service import get_conversation_service
+from ..models import Conversation, ConversationCreate
+from ..services import get_conversation_service
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 

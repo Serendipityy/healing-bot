@@ -1,3 +1,7 @@
+"""
+Chat service for handling AI processing and streaming responses.
+"""
+
 import asyncio
 import os
 import re
@@ -18,7 +22,8 @@ from ragbase.hyde import QueryTransformationHyDE
 from ragbase.model import create_embeddings, create_llm, create_reranker
 from ragbase.retriever import create_optimized_retriever
 from ragbase.session_history import add_message_to_history
-from ..models.chat import ChatRequest, StreamChunk
+
+from ..models import ChatRequest, StreamChunk
 
 load_dotenv()
 

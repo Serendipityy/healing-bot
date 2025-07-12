@@ -1,3 +1,10 @@
+"""
+Healing Bot Frontend - Streamlit Application
+
+Main entry point for the Healing Bot frontend UI.
+Provides a clean and modern chat interface.
+"""
+
 import sys
 import os
 
@@ -7,11 +14,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import streamlit as st
 import time
 
-from frontend.components.chat import show_message_history, show_chat_input
-from frontend.components.sidebar import create_sidebar
+from frontend.components import show_message_history, show_chat_input, create_sidebar
 from frontend.styles.main import get_all_styles
-from frontend.utils.api_client import set_background_image, get_api_client
+from frontend.utils import get_api_client, set_background_image
 from ragbase.config import Config
+from shared import UIConstants
 
 
 def check_backend_status():
@@ -112,7 +119,7 @@ def main():
                 "assistant", 
                 avatar=str(Config.Path.IMAGES_DIR / "bot-avatar-1.jpg")
             ):
-                st.markdown("Xin chào! Mình ở đây sẵn sàng lắng nghe và chia sẻ cùng bạn. Bạn đang nghĩ gì vậy?")
+                st.markdown(UIConstants.DEFAULT_GREETING)
     
     # Chat input
     show_chat_input()
