@@ -136,7 +136,7 @@ class ChatStorage:
         cursor = conn.cursor()
         
         cursor.execute(
-            "SELECT id, title, updated_at FROM conversations ORDER BY updated_at DESC"
+            "SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC"
         )
         
         conversations = []
@@ -144,6 +144,7 @@ class ChatStorage:
             conversations.append({
                 'id': row['id'],
                 'title': row['title'],
+                'created_at': row['created_at'],
                 'updated_at': row['updated_at']
             })
         

@@ -4,14 +4,19 @@ Conversation service for managing chat conversations and message history.
 
 import datetime
 import uuid
+import os
 from typing import List, Optional
 
-from chat_storage import ChatStorage
-from ..models import Conversation, Message, ConversationCreate
+from shared.chat_storage import ChatStorage
+from backend.models import Conversation, Message, ConversationCreate
 
 
 class ConversationService:
-    def __init__(self, db_file: str = "chat_history.db"):
+    def __init__(self, db_file: str = None):
+        if db_file is None:
+            # Use database in project root
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            db_file = os.path.join(project_root, "chat_history.db")
         self.storage = ChatStorage(db_file=db_file)
     
     def create_conversation(self, title: Optional[str] = None) -> str:

@@ -5,6 +5,7 @@ Chat service for handling AI processing and streaming responses.
 import asyncio
 import os
 import re
+import sys
 import time
 import json
 from typing import AsyncGenerator, List, Optional
@@ -16,6 +17,9 @@ from langchain.retrievers.document_compressors.chain_filter import LLMChainFilte
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 
+# Add parent directory to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+
 from ragbase.chain import ask_question, create_chain
 from ragbase.config import Config
 from ragbase.hyde import QueryTransformationHyDE
@@ -23,7 +27,7 @@ from ragbase.model import create_embeddings, create_llm, create_reranker
 from ragbase.retriever import create_optimized_retriever
 from ragbase.session_history import add_message_to_history
 
-from ..models import ChatRequest, StreamChunk
+from backend.models import ChatRequest, StreamChunk
 
 load_dotenv()
 

@@ -3,9 +3,9 @@ from langchain_core.messages import HumanMessage, AIMessage
 import os
 import sys
 
-# Add parent directory to path to import chat_storage
+# Add parent directory to path to import shared modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from chat_storage import ChatStorage
+from shared.chat_storage import ChatStorage
 
 # Global storage cho chain history
 chain_histories = {}
@@ -28,7 +28,10 @@ def load_history_from_db(conversation_id: str):
     Load lịch sử từ database vào chain history
     """
     try:
-        db_path = "chat_history.db"
+        # Get project root path
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        db_path = os.path.join(project_root, "chat_history.db")
+        
         if os.path.exists(db_path):
             storage = ChatStorage(db_path)
             messages = storage.get_conversation_messages(conversation_id)
@@ -53,7 +56,9 @@ def save_message_to_db(conversation_id: str, role: str, content: str):
     Lưu tin nhắn vào database
     """
     try:
-        db_path = "chat_history.db"
+        # Get project root path
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        db_path = os.path.join(project_root, "chat_history.db")
         storage = ChatStorage(db_path)
         storage.save_message(conversation_id, role, content)
     except Exception as e:
