@@ -196,7 +196,7 @@ BUTTON_CSS = """
     
     .stButton button:first-of-type {
         background-color: #f0f7ff;
-        border: 1px solid #5BC099;
+        border: 1px solid #ddd;
         font-weight: bold;
     }
     
@@ -206,7 +206,7 @@ BUTTON_CSS = """
     .stButton button:first-of-type:focus,
     .stButton button:first-of-type:active {
         background-color: #e6f3ff !important;
-        border: 2px solid #4AA085 !important;
+        border: 1px solid #5BC099 !important;
         outline: none !important;
         box-shadow: none !important;
     }
