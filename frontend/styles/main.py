@@ -196,8 +196,19 @@ BUTTON_CSS = """
     
     .stButton button:first-of-type {
         background-color: #f0f7ff;
-        border: 1px solid #ddd;
+        border: 1px solid #5BC099;
         font-weight: bold;
+    }
+    
+    /* Button focus and active states */
+    .stButton button:focus,
+    .stButton button:active,
+    .stButton button:first-of-type:focus,
+    .stButton button:first-of-type:active {
+        background-color: #e6f3ff !important;
+        border: 2px solid #4AA085 !important;
+        outline: none !important;
+        box-shadow: none !important;
     }
     
     .stButton button {
