@@ -86,12 +86,12 @@ async def handle_chat_message(message: str, conversation_id: Optional[str] = Non
         if full_response:
             message_placeholder.markdown(full_response)
         
-        # Show sources if available
-        if sources:
-            for i, source in enumerate(sources[:3]):
-                with st.expander(f"Source #{i+1}", expanded=False):
-                    content = source.get("content", "")
-                    st.write(content)
+        # # Show sources if available
+        # if sources:
+        #     for i, source in enumerate(sources[:3]):
+        #         with st.expander(f"Source #{i+1}", expanded=False):
+        #             content = source.get("content", "")
+        #             st.write(content)
     
     # Add assistant message to session state
     if full_response:
