@@ -73,10 +73,12 @@ MAIN_CSS = """
         padding: 0;
     }
     
-    div[data-testid*="stChatMessageContent user"] {
-        background-color: #e6f3ff;
+    /* User message background */
+    .st-emotion-cache-1c7y2kd {
+        background-color: #d7e6e4 !important;
     }
     
+    /* Assistant message background */
     div[data-testid*="stChatMessageContent assistant"] {
         background-color: #f0f7ff;
     }
@@ -95,6 +97,10 @@ MAIN_CSS = """
     }
     
     .st-emotion-cache-hu32sh {
+        background: unset !important;
+    }
+    
+    .st-emotion-cache-128upt6 {
         background: unset !important;
     }
 </style>

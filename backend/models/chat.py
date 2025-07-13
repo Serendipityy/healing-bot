@@ -24,7 +24,7 @@ class Message(BaseModel):
 
 class ConversationCreate(BaseModel):
     """Model for creating a new conversation."""
-    title: Optional[str] = Field("New Conversation", description="Conversation title")
+    title: Optional[str] = Field(None, description="Conversation title")
 
 
 class Conversation(BaseModel):

@@ -92,11 +92,16 @@ def load_conversation(conversation_id: str):
 def create_new_conversation():
     """Create a new conversation"""
     api_client = get_api_client()
-    result = api_client.create_conversation()
+    
+    # Tạo tiêu đề tiếng Việt với ngày giờ
+    now = datetime.datetime.now()
+    title = f"Cuộc trò chuyện {now.strftime('%d/%m/%Y %H:%M')}"
+    
+    result = api_client.create_conversation(title=title)
     
     if result:
         conversation_id = result["id"]
-        current_time = datetime.datetime.now().strftime("%H:%M")
+        current_time = now.strftime("%H:%M")
         
         initial_message = {
             "role": "assistant",

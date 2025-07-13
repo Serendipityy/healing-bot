@@ -18,12 +18,21 @@ router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 async def create_conversation(request: ConversationCreate):
     """Create a new conversation"""
     try:
+        import datetime
+        
         conversation_service = get_conversation_service()
-        conversation_id = conversation_service.create_conversation(request.title)
+        
+        # Tạo title mặc định bằng tiếng Việt nếu không có
+        title = request.title
+        if not title:
+            now = datetime.datetime.now()
+            title = f"Cuộc trò chuyện {now.strftime('%d/%m/%Y %H:%M')}"
+        
+        conversation_id = conversation_service.create_conversation(title)
         
         return {
             "id": conversation_id,
-            "title": request.title or "New Conversation",
+            "title": title,
             "message": "Conversation created successfully"
         }
     except Exception as e:
